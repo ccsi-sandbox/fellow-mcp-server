@@ -298,6 +298,37 @@ def _register_routes(
                 content_type="application/json",
             ), 200
 
+        elif method == "initialize":
+            # MCP protocol handshake — return server capabilities
+            response_body = {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {
+                        "tools": {},
+                    },
+                    "serverInfo": {
+                        "name": "fellow-mcp-server",
+                        "version": "1.0.0",
+                    },
+                },
+            }
+            return Response(
+                json.dumps(response_body),
+                status=200,
+                content_type="application/json",
+            ), 200
+
+        elif method == "notifications/initialized":
+            # Client acknowledgment — no response needed for notifications
+            # but we return an empty success since this is HTTP (not streaming)
+            return Response(
+                json.dumps({"jsonrpc": "2.0", "id": request_id, "result": {}}),
+                status=200,
+                content_type="application/json",
+            ), 200
+
         elif method == "tools/call":
             return _handle_tools_call(
                 parsed, request_id, registry, validator, api_client, paginator
