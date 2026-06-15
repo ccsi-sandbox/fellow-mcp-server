@@ -1,0 +1,1 @@
+"""MCP protocol handling module."""

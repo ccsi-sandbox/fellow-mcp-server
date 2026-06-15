@@ -1,0 +1,7 @@
+Flask==3.0.0
+gunicorn==21.2.0
+requests==2.31.0
+tenacity==8.2.3
+structlog==23.2.0
+jsonschema==4.20.0
+python-dotenv==1.0.0
