@@ -18,8 +18,8 @@ worker_class = "sync"
 # Timeout for worker processes (seconds)
 # Must be high enough to accommodate paginated requests with retries.
 # Worst case: 20 pages × (30s timeout × 4 attempts) / 3 req/s rate limit = ~800s
-# Setting to 300s as a practical balance.
-timeout = 300
+# Setting to 500s to ensure long paginated operations complete.
+timeout = 500
 
 # Graceful restart timeout
 graceful_timeout = 30

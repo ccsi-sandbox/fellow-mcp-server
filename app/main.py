@@ -4,6 +4,7 @@ import json
 import time
 from typing import Any
 
+import requests as requests_lib
 import structlog
 from flask import Flask, Response, request
 
@@ -450,6 +451,20 @@ def _handle_tools_call(
         except PaginationError as e:
             outcome = "error_pagination"
             error_text = f"Pagination failed on page {e.page_number}: {e.cause}"
+            response_body = build_tool_result(
+                request_id,
+                [{"type": "text", "text": error_text}],
+                is_error=True,
+            )
+            return Response(
+                json.dumps(response_body),
+                status=200,
+                content_type="application/json",
+            ), 200
+        except requests_lib.RequestException as e:
+            outcome = "error_network"
+            error_text = f"Network error communicating with Fellow API: {str(e)}"
+            logger.warning("network_error", tool=tool_name, error=str(e))
             response_body = build_tool_result(
                 request_id,
                 [{"type": "text", "text": error_text}],
