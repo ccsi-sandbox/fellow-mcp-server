@@ -16,7 +16,10 @@ workers = int(os.environ.get("GUNICORN_WORKERS", "2"))
 worker_class = "sync"
 
 # Timeout for worker processes (seconds)
-timeout = 120
+# Must be high enough to accommodate paginated requests with retries.
+# Worst case: 20 pages × (30s timeout × 4 attempts) / 3 req/s rate limit = ~800s
+# Setting to 300s as a practical balance.
+timeout = 300
 
 # Graceful restart timeout
 graceful_timeout = 30

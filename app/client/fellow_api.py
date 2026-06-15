@@ -97,7 +97,7 @@ class FellowApiClient:
     ) -> None:
         self._base_url = config.fellow_base_url
         self._api_key = config.fellow_api_key
-        self._timeout = 30.0
+        self._timeout = 15.0
         self._rate_limiter = rate_limiter or TokenBucketRateLimiter(3.0)
         self._session = requests.Session()
         self._session.headers.update(
