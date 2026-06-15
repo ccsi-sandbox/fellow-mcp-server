@@ -22,6 +22,14 @@ class PaginationError(Exception):
 class CursorPaginator:
     """Handles cursor-based pagination for Fellow API list endpoints.
 
+    The Fellow API uses a nested pagination structure:
+
+    Request:
+        {"pagination": {"cursor": null, "page_size": 20}, ...}
+
+    Response:
+        {"<resource_key>": {"page_info": {"cursor": "...", "page_size": 20}, "data": [...]}}
+
     Fetches all pages sequentially, combining results into a single list.
     Stops when cursor is null or max_pages reached.
     """
@@ -33,14 +41,18 @@ class CursorPaginator:
     def fetch_all(
         self,
         request_fn: Callable[[dict], dict[str, Any]],
-        base_params: dict,
+        base_body: dict,
+        response_key: str,
     ) -> tuple[list[dict], bool]:
         """Fetch all pages. Returns (combined_results, was_truncated).
 
         Args:
-            request_fn: Function that takes params dict and returns API response.
-                The response must have 'results' (list) and 'cursor' (str or None).
-            base_params: Base request parameters (filters, etc).
+            request_fn: Function that takes a request body dict and returns
+                the raw API response.
+            base_body: Base request body (filters, include, etc). The pagination
+                object will be added/updated automatically.
+            response_key: The top-level key in the response containing the
+                paginated data (e.g., "notes", "recordings", "action_items").
 
         Returns:
             Tuple of (all_results, was_truncated). was_truncated is True if
@@ -54,19 +66,26 @@ class CursorPaginator:
         was_truncated = False
 
         for page_number in range(1, self._max_pages + 1):
-            params = {**base_params, "page_size": self._page_size}
-            if cursor is not None:
-                params["cursor"] = cursor
+            # Build the request body with pagination nested correctly
+            body = {**base_body}
+            body["pagination"] = {
+                "cursor": cursor,
+                "page_size": self._page_size,
+            }
 
             try:
-                response = request_fn(params)
+                response = request_fn(body)
             except Exception as exc:
                 raise PaginationError(page_number, exc) from exc
 
-            results = response.get("results", [])
+            # Extract data from the nested response structure
+            resource_data = response.get(response_key, {})
+            results = resource_data.get("data", [])
+            page_info = resource_data.get("page_info", {})
+
             combined_results.extend(results)
 
-            cursor = response.get("cursor")
+            cursor = page_info.get("cursor")
             if cursor is None:
                 # No more pages - pagination complete
                 break

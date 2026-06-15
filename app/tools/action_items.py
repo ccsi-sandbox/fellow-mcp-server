@@ -13,9 +13,13 @@ def list_action_items(
 ) -> dict[str, Any]:
     """List action items with optional filters and pagination.
 
-    Sends a POST request to /api/v1/action_items with optional filters
-    for completed, archived, ai_detected, scope, and ordering.
-    Uses the paginator to automatically retrieve all pages.
+    Sends a POST request to /api/v1/action_items with the Fellow API's
+    expected body structure:
+        {
+            "pagination": {"cursor": null, "page_size": 50},
+            "filters": {...},
+            "order_by": "..."
+        }
 
     Args:
         arguments: Optional filter parameters:
@@ -28,24 +32,31 @@ def list_action_items(
         paginator: Cursor paginator for fetching all pages.
 
     Returns:
-        Dict with 'results' list and 'truncated' flag.
-
-    Validates: Requirements 5.1, 5.7
+        Dict with 'results' list and optional 'truncated' flag.
     """
+    # Build the request body per Fellow API spec
     body: dict[str, Any] = {}
 
-    # Build body from optional filters
-    filter_keys = ("completed", "archived", "ai_detected", "scope", "ordering")
+    # Filters go in a nested "filters" object
+    filters: dict[str, Any] = {}
+    filter_keys = ("completed", "archived", "ai_detected", "scope")
     for key in filter_keys:
         if key in arguments:
-            body[key] = arguments[key]
+            filters[key] = arguments[key]
+    if filters:
+        body["filters"] = filters
 
-    def request_fn(params: dict[str, Any]) -> dict[str, Any]:
-        return client.post("/api/v1/action_items", body={**body, **params})
+    # order_by is a top-level parameter
+    if "ordering" in arguments:
+        body["order_by"] = arguments["ordering"]
+
+    def request_fn(request_body: dict[str, Any]) -> dict[str, Any]:
+        return client.post("/api/v1/action_items", body=request_body)
 
     results, was_truncated = paginator.fetch_all(
         request_fn=request_fn,
-        base_params={},
+        base_body=body,
+        response_key="action_items",
     )
 
     response: dict[str, Any] = {"results": results}
@@ -64,15 +75,6 @@ def get_action_item(
     """Get a single action item by ID.
 
     Sends a GET request to /api/v1/action_item/{id}.
-
-    Args:
-        arguments: Must contain 'id' (str) - the action item ID.
-        client: Fellow API client instance.
-
-    Returns:
-        The action item details from the Fellow API.
-
-    Validates: Requirements 5.2
     """
     action_item_id = arguments["id"]
     return client.get(f"/api/v1/action_item/{action_item_id}")
@@ -87,17 +89,6 @@ def complete_action_item(
 
     Sends a POST request to /api/v1/action_item/{id}/complete
     with {"completed": true/false}.
-
-    Args:
-        arguments: Must contain:
-            - id (str): The action item ID.
-            - completed (bool): True to mark complete, False to mark incomplete.
-        client: Fellow API client instance.
-
-    Returns:
-        The updated action item from the Fellow API.
-
-    Validates: Requirements 5.3, 5.4, 5.6
     """
     action_item_id = arguments["id"]
     completed = arguments["completed"]
@@ -115,15 +106,6 @@ def archive_action_item(
     """Archive an action item.
 
     Sends a POST request to /api/v1/action_item/{id}/archive.
-
-    Args:
-        arguments: Must contain 'id' (str) - the action item ID.
-        client: Fellow API client instance.
-
-    Returns:
-        The updated action item from the Fellow API.
-
-    Validates: Requirements 5.5, 5.6
     """
     action_item_id = arguments["id"]
     return client.post(f"/api/v1/action_item/{action_item_id}/archive")

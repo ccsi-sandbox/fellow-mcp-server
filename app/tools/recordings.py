@@ -10,7 +10,7 @@ from app.client.fellow_api import FellowApiClient
 from app.client.paginator import CursorPaginator
 
 
-# Filter fields that go into the POST body for list_recordings
+# Filter fields for list_recordings
 _LIST_RECORDINGS_FILTERS = [
     "event_guid",
     "created_at_start",
@@ -29,9 +29,14 @@ def list_recordings(
 ) -> dict[str, Any]:
     """List recordings with optional filters, includes, and media_url flag.
 
-    Sends a POST request to /api/v1/recordings with filters, include options
-    (transcript, ai_notes), and media_url flag in the request body.
-    Uses cursor pagination to retrieve all pages.
+    Sends a POST request to /api/v1/recordings with the Fellow API's
+    expected body structure:
+        {
+            "pagination": {"cursor": null, "page_size": 50},
+            "filters": {...},
+            "include": {...},
+            "media_url": {...}
+        }
 
     Args:
         arguments: Validated tool arguments. Optional keys:
@@ -45,29 +50,37 @@ def list_recordings(
 
     Returns:
         Dict with 'results' list and optional 'truncated' indicator.
-
-    Validates: Requirements 7.1, 7.2, 7.5
     """
-    # Build request body from filters
     body: dict[str, Any] = {}
+
+    # Filters go in a nested "filters" object
+    filters: dict[str, Any] = {}
     for key in _LIST_RECORDINGS_FILTERS:
         if key in arguments:
-            body[key] = arguments[key]
+            filters[key] = arguments[key]
+    if filters:
+        body["filters"] = filters
 
-    # Include options go in the body alongside filters
+    # Include options go in a nested "include" object
+    # The API expects {"include": {"transcript": true, "ai_notes": true}}
     if "include" in arguments:
-        body["include"] = arguments["include"]
+        include_obj: dict[str, bool] = {}
+        for field in arguments["include"]:
+            include_obj[field] = True
+        body["include"] = include_obj
 
-    # media_url flag goes in the body
-    if "media_url" in arguments:
-        body["media_url"] = arguments["media_url"]
+    # media_url is a nested config object
+    if "media_url" in arguments and arguments["media_url"]:
+        body["media_url"] = {"include": True}
 
-    def request_fn(params: dict) -> dict[str, Any]:
-        # Merge pagination params (page_size, cursor) into the body
-        request_body = {**body, **params}
+    def request_fn(request_body: dict[str, Any]) -> dict[str, Any]:
         return client.post("/api/v1/recordings", body=request_body)
 
-    results, was_truncated = paginator.fetch_all(request_fn, {})
+    results, was_truncated = paginator.fetch_all(
+        request_fn=request_fn,
+        base_body=body,
+        response_key="recordings",
+    )
 
     response: dict[str, Any] = {"results": results}
     if was_truncated:
@@ -85,22 +98,9 @@ def get_recording(
 
     Sends a GET request to /api/v1/recording/{id} with optional query
     parameters for include (transcript, ai_notes) and media_url.
-
-    Args:
-        arguments: Validated tool arguments with required 'id' key.
-            Optional keys:
-            - include (list of: transcript, ai_notes)
-            - media_url (bool): Whether to return pre-signed media URL.
-        client: Fellow API HTTP client.
-
-    Returns:
-        Recording details from the Fellow API.
-
-    Validates: Requirements 7.3
     """
     recording_id = arguments["id"]
 
-    # Build query params from optional includes and media_url
     params: dict[str, Any] = {}
     if "include" in arguments:
         params["include"] = ",".join(arguments["include"])
@@ -118,15 +118,6 @@ def delete_recording(
     """Delete a recording by ID.
 
     Sends a DELETE request to /api/v1/recording/{id}.
-
-    Args:
-        arguments: Validated tool arguments with required 'id' key.
-        client: Fellow API HTTP client.
-
-    Returns:
-        Confirmation dict with 'deleted' flag and recording 'id'.
-
-    Validates: Requirements 7.4
     """
     recording_id = arguments["id"]
     client.delete(f"/api/v1/recording/{recording_id}")
