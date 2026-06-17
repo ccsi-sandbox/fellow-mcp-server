@@ -19,6 +19,10 @@ COPY --from=builder /usr/local/bin/gunicorn /usr/local/bin/gunicorn
 COPY app/ ./app/
 COPY gunicorn.conf.py .
 
+# Install timezone data and set default timezone
+RUN apt-get update && apt-get install -y --no-install-recommends tzdata && rm -rf /var/lib/apt/lists/*
+ENV TZ=America/Los_Angeles
+
 # Switch to non-root user
 USER appuser
 

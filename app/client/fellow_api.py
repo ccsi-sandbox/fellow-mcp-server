@@ -243,12 +243,27 @@ class FellowApiClient:
         self._rate_limiter.acquire()
 
         url = f"{self._base_url}{path}"
+        logger.debug(
+            "fellow_api_request",
+            http_method=method,
+            url=url,
+            params=params,
+            body_keys=list(json_body.keys()) if json_body else None,
+        )
         response = self._session.request(
             method=method,
             url=url,
             params=params,
             json=json_body,
             timeout=self._timeout,
+        )
+        logger.debug(
+            "fellow_api_response",
+            http_method=method,
+            url=url,
+            status_code=response.status_code,
+            response_body=response.text[:500],
+            elapsed_ms=round(response.elapsed.total_seconds() * 1000, 2),
         )
 
         if response.status_code in TRANSIENT_STATUS_CODES:

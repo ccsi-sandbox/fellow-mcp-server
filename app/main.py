@@ -274,6 +274,13 @@ def _register_routes(
             parsed = parse_jsonrpc_request(request.get_data())
             request_id = parsed.get("id")
             method = parsed["method"]
+
+            logger.debug(
+                "mcp_request_received",
+                method=method,
+                params=parsed.get("params"),
+                jsonrpc_id=request_id,
+            )
         except JsonRpcParseError as e:
             response_body = build_jsonrpc_error(None, e.code, e.message)
             return Response(

@@ -3,6 +3,10 @@
 import threading
 import time
 
+import structlog
+
+logger = structlog.get_logger(__name__)
+
 
 class TokenBucketRateLimiter:
     """Thread-safe token bucket rate limiter.
@@ -35,6 +39,12 @@ class TokenBucketRateLimiter:
                 self._tokens -= 1.0
 
             # Sleep outside the lock — the token is already reserved
+            logger.debug(
+                "rate_limiter_wait",
+                tokens_available=round(self._tokens + 1.0, 3),
+                wait_seconds=round(wait_time, 4),
+                max_tokens=self._max_tokens,
+            )
             time.sleep(wait_time)
             return
 
