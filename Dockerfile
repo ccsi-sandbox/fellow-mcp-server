@@ -1,18 +1,18 @@
 # Builder stage
-FROM python:3.11-slim AS builder
+FROM python:3.12-slim AS builder
 WORKDIR /build
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Production stage
-FROM python:3.11-slim
+FROM python:3.12-slim
 WORKDIR /app
 
-# Create non-root user
-RUN adduser --disabled-password --no-create-home appuser
+# Create non-root user (home directory required by gunicorn 26+ for control socket)
+RUN adduser --disabled-password appuser
 
 # Copy installed packages from builder
-COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=builder /usr/local/bin/gunicorn /usr/local/bin/gunicorn
 
 # Copy application code

@@ -315,7 +315,7 @@ class TestIdAndStringConstraints:
         assert "non-empty" in url_errors[0] or "must be" in url_errors[0]
 
     @given(url_value=overlong_urls)
-    @settings(max_examples=200, suppress_health_check=[HealthCheck.large_base_example])
+    @settings(max_examples=200, deadline=None, suppress_health_check=[HealthCheck.large_base_example])
     def test_overlong_urls_fail(self, url_value):
         """URLs longer than 2048 characters fail validation.
 

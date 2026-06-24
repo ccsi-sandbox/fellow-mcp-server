@@ -12,6 +12,24 @@ from typing import Optional
 _VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 
 
+def _strip_inline_comment(value: str) -> str:
+    """Strip inline comments from environment variable values.
+
+    Docker Compose env_file does not strip inline comments, so a value like
+    'INFO  # some comment' is passed verbatim. This helper strips the comment.
+
+    Args:
+        value: Raw environment variable value.
+
+    Returns:
+        Value with inline comment removed and whitespace stripped.
+    """
+    # Only strip if there's a space before the # (to avoid stripping # in values)
+    if " #" in value:
+        value = value[: value.index(" #")]
+    return value.strip()
+
+
 @dataclass(frozen=True)
 class AppConfig:
     """Immutable application configuration loaded from environment variables."""
@@ -73,7 +91,9 @@ class AppConfig:
                 )
 
         # Gunicorn workers
-        workers_raw = os.environ.get("GUNICORN_WORKERS", "2").strip()
+        workers_raw = _strip_inline_comment(
+            os.environ.get("GUNICORN_WORKERS", "2")
+        )
         gunicorn_workers = 2
         try:
             gunicorn_workers = int(workers_raw)
@@ -89,7 +109,9 @@ class AppConfig:
             )
 
         # Log level
-        log_level_raw = os.environ.get("LOG_LEVEL", "INFO").strip().upper()
+        log_level_raw = _strip_inline_comment(
+            os.environ.get("LOG_LEVEL", "INFO")
+        ).upper()
         log_level = "INFO"
         if log_level_raw in _VALID_LOG_LEVELS:
             log_level = log_level_raw
@@ -102,7 +124,9 @@ class AppConfig:
             )
 
         # MCP endpoint path
-        mcp_endpoint_path = os.environ.get("MCP_ENDPOINT_PATH", "/mcp").strip()
+        mcp_endpoint_path = _strip_inline_comment(
+            os.environ.get("MCP_ENDPOINT_PATH", "/mcp")
+        )
 
         # Fail fast on validation errors
         if errors:

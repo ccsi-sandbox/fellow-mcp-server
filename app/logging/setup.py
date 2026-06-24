@@ -29,15 +29,24 @@ def configure_logging(log_level: str) -> None:
 
     numeric_level = getattr(logging, level_upper)
 
-    # Configure the standard library root logger to match
+    # Configure the standard library root logger to match.
+    # Use force=True to override any prior basicConfig (e.g. from gunicorn).
     logging.basicConfig(
         format="%(message)s",
         level=numeric_level,
         force=True,
     )
 
+    # Also explicitly set the root logger level and ensure a StreamHandler
+    # exists at the correct level. This survives gunicorn's handler manipulation.
+    root_logger = logging.getLogger()
+    root_logger.setLevel(numeric_level)
+    for handler in root_logger.handlers:
+        handler.setLevel(numeric_level)
+
     structlog.configure(
         processors=[
+            structlog.stdlib.filter_by_level,
             structlog.contextvars.merge_contextvars,
             structlog.stdlib.add_log_level,
             structlog.stdlib.add_logger_name,

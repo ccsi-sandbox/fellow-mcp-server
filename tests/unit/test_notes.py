@@ -1,6 +1,6 @@
 """Unit tests for notes tool handlers."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -37,7 +37,7 @@ class TestListNotes:
         mock_paginator.fetch_all.assert_called_once()
 
     def test_list_notes_with_filters(self, mock_client, mock_paginator):
-        """list_notes passes filter params to the request body."""
+        """list_notes passes filter params in nested 'filters' object."""
         mock_paginator.fetch_all.return_value = ([], False)
 
         arguments = {
@@ -48,43 +48,35 @@ class TestListNotes:
         }
         list_notes(arguments, mock_client, mock_paginator)
 
-        # Get the request_fn that was passed to fetch_all
-        request_fn = mock_paginator.fetch_all.call_args[0][0]
+        # Get the base_body passed to fetch_all via kwargs
+        call_kwargs = mock_paginator.fetch_all.call_args.kwargs
+        base_body = call_kwargs["base_body"]
 
-        # Call request_fn with pagination params to verify body content
-        mock_client.post.return_value = {"results": [], "cursor": None}
-        request_fn({"page_size": 50})
-
-        mock_client.post.assert_called_once_with(
-            "/api/v1/notes",
-            body={
-                "event_guid": "guid-123",
-                "created_at_start": "2024-01-01",
-                "created_at_end": "2024-12-31",
-                "title": "Standup",
-                "page_size": 50,
-            },
-        )
+        # Filters should be in nested "filters" key
+        assert base_body["filters"] == {
+            "event_guid": "guid-123",
+            "created_at_start": "2024-01-01",
+            "created_at_end": "2024-12-31",
+            "title": "Standup",
+        }
+        # response_key should be "notes"
+        assert call_kwargs["response_key"] == "notes"
 
     def test_list_notes_with_include_options(self, mock_client, mock_paginator):
-        """list_notes passes include options in the request body."""
+        """list_notes passes include options as nested boolean object."""
         mock_paginator.fetch_all.return_value = ([], False)
 
         arguments = {"include": ["event_attendees", "content_markdown"]}
         list_notes(arguments, mock_client, mock_paginator)
 
-        # Get the request_fn and invoke it
-        request_fn = mock_paginator.fetch_all.call_args[0][0]
-        mock_client.post.return_value = {"results": [], "cursor": None}
-        request_fn({"page_size": 50})
+        call_kwargs = mock_paginator.fetch_all.call_args.kwargs
+        base_body = call_kwargs["base_body"]
 
-        mock_client.post.assert_called_once_with(
-            "/api/v1/notes",
-            body={
-                "include": ["event_attendees", "content_markdown"],
-                "page_size": 50,
-            },
-        )
+        # Include should be a nested object with boolean values
+        assert base_body["include"] == {
+            "event_attendees": True,
+            "content_markdown": True,
+        }
 
     def test_list_notes_with_filters_and_includes(self, mock_client, mock_paginator):
         """list_notes combines filters and include options in the body."""
@@ -96,18 +88,11 @@ class TestListNotes:
         }
         list_notes(arguments, mock_client, mock_paginator)
 
-        request_fn = mock_paginator.fetch_all.call_args[0][0]
-        mock_client.post.return_value = {"results": [], "cursor": None}
-        request_fn({"page_size": 50})
+        call_kwargs = mock_paginator.fetch_all.call_args.kwargs
+        base_body = call_kwargs["base_body"]
 
-        mock_client.post.assert_called_once_with(
-            "/api/v1/notes",
-            body={
-                "channel_id": "ch-456",
-                "include": ["content_markdown"],
-                "page_size": 50,
-            },
-        )
+        assert base_body["filters"] == {"channel_id": "ch-456"}
+        assert base_body["include"] == {"content_markdown": True}
 
     def test_list_notes_truncated_results(self, mock_client, mock_paginator):
         """list_notes includes truncation indicator when paginator truncates."""
@@ -138,17 +123,10 @@ class TestListNotes:
         arguments = {"event_attendees": "user@example.com"}
         list_notes(arguments, mock_client, mock_paginator)
 
-        request_fn = mock_paginator.fetch_all.call_args[0][0]
-        mock_client.post.return_value = {"results": [], "cursor": None}
-        request_fn({"page_size": 50})
+        call_kwargs = mock_paginator.fetch_all.call_args.kwargs
+        base_body = call_kwargs["base_body"]
 
-        mock_client.post.assert_called_once_with(
-            "/api/v1/notes",
-            body={
-                "event_attendees": "user@example.com",
-                "page_size": 50,
-            },
-        )
+        assert base_body["filters"] == {"event_attendees": "user@example.com"}
 
 
 class TestGetNote:
@@ -164,7 +142,7 @@ class TestGetNote:
 
         result = get_note({"id": "note-123"}, mock_client)
 
-        mock_client.get.assert_called_once_with("/api/v1/note/note-123")
+        mock_client.get.assert_called_once_with("/api/v1/note/note-123", metrics=None)
         assert result == {
             "id": "note-123",
             "title": "Team Standup",
@@ -177,7 +155,7 @@ class TestGetNote:
 
         result = get_note({"id": "abc-123_def"}, mock_client)
 
-        mock_client.get.assert_called_once_with("/api/v1/note/abc-123_def")
+        mock_client.get.assert_called_once_with("/api/v1/note/abc-123_def", metrics=None)
         assert result["id"] == "abc-123_def"
 
 
@@ -190,7 +168,7 @@ class TestDeleteNote:
 
         result = delete_note({"id": "note-456"}, mock_client)
 
-        mock_client.delete.assert_called_once_with("/api/v1/note/note-456")
+        mock_client.delete.assert_called_once_with("/api/v1/note/note-456", metrics=None)
         assert result == {"deleted": True, "id": "note-456"}
 
     def test_delete_note_returns_id_in_confirmation(self, mock_client):

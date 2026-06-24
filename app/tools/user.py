@@ -4,14 +4,16 @@ Provides the get_current_user MCP tool handler for retrieving
 the authenticated user's information from the Fellow.ai API.
 """
 
-from typing import Any
+from typing import Any, Optional
 
 from app.client.fellow_api import FellowApiClient, FellowApiError
+from app.logging.metrics import RequestMetrics
 
 
 def get_current_user(
     arguments: dict[str, Any],
     client: FellowApiClient,
+    metrics: Optional[RequestMetrics] = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
     """Get the authenticated user's info from /api/v1/me.
@@ -23,6 +25,7 @@ def get_current_user(
     Args:
         arguments: Empty dict (no input parameters required).
         client: Fellow API HTTP client.
+        metrics: Optional RequestMetrics to accumulate timing/size data.
 
     Returns:
         Dict with user info (user ID, full name, email, workspace ID,
@@ -35,7 +38,7 @@ def get_current_user(
     Validates: Requirements 9.1, 9.2
     """
     try:
-        return client.get("/api/v1/me")
+        return client.get("/api/v1/me", metrics=metrics)
     except FellowApiError as e:
         if e.status_code == 401:
             return {

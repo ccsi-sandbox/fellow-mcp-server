@@ -40,7 +40,7 @@ class TestListActionItems:
         mock_paginator.fetch_all.assert_called_once()
 
     def test_with_all_filters(self, mock_client, mock_paginator):
-        """List action items passes all recognized filters in the body."""
+        """List action items passes all recognized filters in nested structure."""
         mock_paginator.fetch_all.return_value = ([], False)
 
         arguments = {
@@ -51,25 +51,22 @@ class TestListActionItems:
             "ordering": "created_at_desc",
         }
 
-        result = list_action_items(arguments, mock_client, mock_paginator)
+        list_action_items(arguments, mock_client, mock_paginator)
 
-        # Verify paginator was called
-        mock_paginator.fetch_all.assert_called_once()
-        # Get the request_fn and call it to verify body construction
-        call_args = mock_paginator.fetch_all.call_args
-        request_fn = call_args[1]["request_fn"] if "request_fn" in call_args[1] else call_args[0][0]
-        request_fn({"page_size": 50})
-        mock_client.post.assert_called_once_with(
-            "/api/v1/action_items",
-            body={
-                "completed": True,
-                "archived": False,
-                "ai_detected": True,
-                "scope": "assigned_to_me",
-                "ordering": "created_at_desc",
-                "page_size": 50,
-            },
-        )
+        # Verify paginator was called with correct base_body
+        call_kwargs = mock_paginator.fetch_all.call_args.kwargs
+        base_body = call_kwargs["base_body"]
+
+        # Filter keys should be in nested "filters" object
+        assert base_body["filters"] == {
+            "completed": True,
+            "archived": False,
+            "ai_detected": True,
+            "scope": "assigned_to_me",
+        }
+        # "ordering" maps to "order_by" at top level
+        assert base_body["order_by"] == "created_at_desc"
+        assert call_kwargs["response_key"] == "action_items"
 
     def test_partial_filters(self, mock_client, mock_paginator):
         """List action items only includes provided filters."""
@@ -79,13 +76,11 @@ class TestListActionItems:
 
         list_action_items(arguments, mock_client, mock_paginator)
 
-        call_args = mock_paginator.fetch_all.call_args
-        request_fn = call_args[1]["request_fn"] if "request_fn" in call_args[1] else call_args[0][0]
-        request_fn({"page_size": 50})
-        mock_client.post.assert_called_once_with(
-            "/api/v1/action_items",
-            body={"completed": False, "scope": "all", "page_size": 50},
-        )
+        call_kwargs = mock_paginator.fetch_all.call_args.kwargs
+        base_body = call_kwargs["base_body"]
+
+        assert base_body["filters"] == {"completed": False, "scope": "all"}
+        assert "order_by" not in base_body
 
     def test_truncated_results(self, mock_client, mock_paginator):
         """When paginator indicates truncation, response includes truncation info."""
@@ -115,13 +110,14 @@ class TestListActionItems:
 
         list_action_items(arguments, mock_client, mock_paginator)
 
-        call_args = mock_paginator.fetch_all.call_args
-        request_fn = call_args[1]["request_fn"] if "request_fn" in call_args[1] else call_args[0][0]
-        request_fn({"page_size": 50})
-        mock_client.post.assert_called_once_with(
-            "/api/v1/action_items",
-            body={"completed": True, "page_size": 50},
-        )
+        call_kwargs = mock_paginator.fetch_all.call_args.kwargs
+        base_body = call_kwargs["base_body"]
+
+        # Only known filters should be present
+        assert base_body["filters"] == {"completed": True}
+        assert "unknown_param" not in base_body
+        # No extra top-level keys
+        assert set(base_body.keys()) == {"filters"}
 
 
 class TestGetActionItem:
@@ -135,7 +131,7 @@ class TestGetActionItem:
         result = get_action_item({"id": "abc123"}, mock_client)
 
         assert result == expected
-        mock_client.get.assert_called_once_with("/api/v1/action_item/abc123")
+        mock_client.get.assert_called_once_with("/api/v1/action_item/abc123", metrics=None)
 
     def test_get_returns_full_response(self, mock_client):
         """Get action item returns the full API response."""
@@ -170,6 +166,7 @@ class TestCompleteActionItem:
         mock_client.post.assert_called_once_with(
             "/api/v1/action_item/abc/complete",
             body={"completed": True},
+            metrics=None,
         )
 
     def test_mark_incomplete(self, mock_client):
@@ -185,6 +182,7 @@ class TestCompleteActionItem:
         mock_client.post.assert_called_once_with(
             "/api/v1/action_item/abc/complete",
             body={"completed": False},
+            metrics=None,
         )
 
     def test_returns_updated_item(self, mock_client):
@@ -216,7 +214,8 @@ class TestArchiveActionItem:
 
         assert result == expected
         mock_client.post.assert_called_once_with(
-            "/api/v1/action_item/abc/archive"
+            "/api/v1/action_item/abc/archive",
+            metrics=None,
         )
 
     def test_returns_updated_item(self, mock_client):

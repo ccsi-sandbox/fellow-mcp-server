@@ -241,8 +241,8 @@ class TestDebugLoggingBugCondition:
         self, http_method: str, path: str
     ):
         """When LOG_LEVEL=DEBUG and the Fellow API returns a response,
-        a DEBUG log with event 'fellow_api_response' containing status_code,
-        truncated response_body, and elapsed_ms SHALL be emitted.
+        a DEBUG log with event 'fellow_api_call' containing http_method, url,
+        duration_ms, status_code, request_bytes, and response_bytes SHALL be emitted.
 
         **Validates: Requirements 1.3, 2.3**
         """
@@ -267,24 +267,27 @@ class TestDebugLoggingBugCondition:
             with structlog.testing.capture_logs() as captured:
                 api_client._do_request_with_retry(http_method, path)
 
-        # Assert a DEBUG entry with event "fellow_api_response" was emitted
+        # Assert a DEBUG entry with event "fellow_api_call" was emitted
         response_entries = [
             entry for entry in captured
-            if entry.get("event") == "fellow_api_response"
+            if entry.get("event") == "fellow_api_call"
             and entry.get("log_level") == "debug"
         ]
 
         assert len(response_entries) >= 1, (
-            f"Expected at least one DEBUG log entry with event 'fellow_api_response' "
+            f"Expected at least one DEBUG log entry with event 'fellow_api_call' "
             f"for {http_method} {path}, but got zero. "
             f"Captured log events: {[e.get('event') for e in captured]}"
         )
 
         # Verify required fields
         entry = response_entries[0]
-        assert "status_code" in entry, f"Missing 'status_code' in fellow_api_response entry: {entry}"
-        assert "elapsed_ms" in entry, f"Missing 'elapsed_ms' in fellow_api_response entry: {entry}"
-        assert "response_body" in entry, f"Missing 'response_body' in fellow_api_response entry: {entry}"
+        assert "http_method" in entry, f"Missing 'http_method' in fellow_api_call entry: {entry}"
+        assert "url" in entry, f"Missing 'url' in fellow_api_call entry: {entry}"
+        assert "duration_ms" in entry, f"Missing 'duration_ms' in fellow_api_call entry: {entry}"
+        assert "status_code" in entry, f"Missing 'status_code' in fellow_api_call entry: {entry}"
+        assert "request_bytes" in entry, f"Missing 'request_bytes' in fellow_api_call entry: {entry}"
+        assert "response_bytes" in entry, f"Missing 'response_bytes' in fellow_api_call entry: {entry}"
 
     @given(initial_tokens=low_token_counts)
     @settings(max_examples=50, deadline=None)

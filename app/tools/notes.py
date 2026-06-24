@@ -4,10 +4,11 @@ Provides MCP tool handlers for listing, retrieving, and deleting
 Fellow.ai meeting notes.
 """
 
-from typing import Any
+from typing import Any, Optional
 
 from app.client.fellow_api import FellowApiClient
 from app.client.paginator import CursorPaginator
+from app.logging.metrics import RequestMetrics
 
 
 # Filter fields for list_notes
@@ -27,6 +28,8 @@ def list_notes(
     arguments: dict[str, Any],
     client: FellowApiClient,
     paginator: CursorPaginator,
+    metrics: Optional[RequestMetrics] = None,
+    **kwargs: Any,
 ) -> dict[str, Any]:
     """List notes with optional filters and include options.
 
@@ -69,12 +72,13 @@ def list_notes(
         body["include"] = include_obj
 
     def request_fn(request_body: dict[str, Any]) -> dict[str, Any]:
-        return client.post("/api/v1/notes", body=request_body)
+        return client.post("/api/v1/notes", body=request_body, metrics=metrics)
 
     results, was_truncated = paginator.fetch_all(
         request_fn=request_fn,
         base_body=body,
         response_key="notes",
+        metrics=metrics,
     )
 
     response: dict[str, Any] = {"results": results}
@@ -87,6 +91,7 @@ def list_notes(
 def get_note(
     arguments: dict[str, Any],
     client: FellowApiClient,
+    metrics: Optional[RequestMetrics] = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
     """Retrieve a single note by ID.
@@ -94,12 +99,13 @@ def get_note(
     Sends a GET request to /api/v1/note/{id}.
     """
     note_id = arguments["id"]
-    return client.get(f"/api/v1/note/{note_id}")
+    return client.get(f"/api/v1/note/{note_id}", metrics=metrics)
 
 
 def delete_note(
     arguments: dict[str, Any],
     client: FellowApiClient,
+    metrics: Optional[RequestMetrics] = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
     """Delete a note by ID.
@@ -107,5 +113,5 @@ def delete_note(
     Sends a DELETE request to /api/v1/note/{id}.
     """
     note_id = arguments["id"]
-    client.delete(f"/api/v1/note/{note_id}")
+    client.delete(f"/api/v1/note/{note_id}", metrics=metrics)
     return {"deleted": True, "id": note_id}

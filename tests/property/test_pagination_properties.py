@@ -30,6 +30,8 @@ page_counts = st.integers(min_value=1, max_value=25)
 # Random page sizes (0-50 items per page)
 page_item_counts = st.integers(min_value=0, max_value=50)
 
+RESPONSE_KEY = "items"
+
 
 def page_items_strategy(num_pages: int):
     """Generate a list of lists, where each inner list represents page items."""
@@ -41,6 +43,16 @@ def page_items_strategy(num_pages: int):
 
 
 # --- Helpers ---
+
+
+def _make_response(results: list, cursor: str | None) -> dict:
+    """Build a response in the nested format expected by the paginator."""
+    return {
+        RESPONSE_KEY: {
+            "data": results,
+            "page_info": {"cursor": cursor, "page_size": 50},
+        }
+    }
 
 
 def make_mock_request_fn(pages: list[list[dict]], max_pages: int = 20):
@@ -64,7 +76,7 @@ def make_mock_request_fn(pages: list[list[dict]], max_pages: int = 20):
         is_last_page = page_idx == len(pages) - 1
         cursor = None if is_last_page else f"cursor-page-{page_idx + 2}"
 
-        return {"results": results, "cursor": cursor}
+        return _make_response(results, cursor)
 
     return request_fn, call_count
 
@@ -98,7 +110,7 @@ def make_failing_request_fn(
         is_last_page = page_idx == len(pages) - 1
         cursor = None if is_last_page else f"cursor-page-{page_idx + 2}"
 
-        return {"results": results, "cursor": cursor}
+        return _make_response(results, cursor)
 
     return request_fn, call_count
 
@@ -147,7 +159,7 @@ class TestPaginationCombinesResultsProperty:
         request_fn, call_count = make_mock_request_fn(pages, max_pages=20)
         paginator = CursorPaginator(max_pages=20, page_size=50)
 
-        results, was_truncated = paginator.fetch_all(request_fn, {})
+        results, was_truncated = paginator.fetch_all(request_fn, {}, RESPONSE_KEY)
 
         # (a) Exactly K requests made
         assert call_count["value"] == num_pages
@@ -193,11 +205,11 @@ class TestPaginationCombinesResultsProperty:
             results = pages[page_idx]
             # ALL pages return non-null cursor (simulating more pages exist)
             cursor = f"cursor-page-{page_idx + 2}"
-            return {"results": results, "cursor": cursor}
+            return _make_response(results, cursor)
 
         paginator = CursorPaginator(max_pages=max_pages, page_size=50)
 
-        results, was_truncated = paginator.fetch_all(request_fn, {})
+        results, was_truncated = paginator.fetch_all(request_fn, {}, RESPONSE_KEY)
 
         # (a) Exactly max_pages requests made
         assert call_count["value"] == max_pages
@@ -251,10 +263,10 @@ class TestPaginationCombinesResultsProperty:
             # Pages 1..num_pages-1 have cursor, page num_pages has null
             is_last_page = page_idx == num_pages - 1
             cursor = None if is_last_page else f"cursor-page-{page_idx + 2}"
-            return {"results": results, "cursor": cursor}
+            return _make_response(results, cursor)
 
         paginator = CursorPaginator(max_pages=max_pages, page_size=50)
-        results, was_truncated = paginator.fetch_all(request_fn, {})
+        results, was_truncated = paginator.fetch_all(request_fn, {}, RESPONSE_KEY)
 
         # How many pages actually fetched
         actual_pages_fetched = min(num_pages, max_pages)
@@ -327,7 +339,7 @@ class TestMidPaginationFailureProperty:
         paginator = CursorPaginator(max_pages=20, page_size=50)
 
         with pytest.raises(PaginationError) as exc_info:
-            paginator.fetch_all(request_fn, {})
+            paginator.fetch_all(request_fn, {}, RESPONSE_KEY)
 
         # PaginationError should report the correct page number
         assert exc_info.value.page_number == fail_page
@@ -380,7 +392,7 @@ class TestMidPaginationFailureProperty:
 
         # The only outcome is an exception - no partial results are accessible
         with pytest.raises(PaginationError) as exc_info:
-            paginator.fetch_all(request_fn, {})
+            paginator.fetch_all(request_fn, {}, RESPONSE_KEY)
 
         assert exc_info.value.page_number == fail_page
         # Partial results are discarded (exception is the only return path)

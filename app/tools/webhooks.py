@@ -4,14 +4,16 @@ Provides MCP tool handlers for creating, listing, retrieving, updating,
 and deleting Fellow.ai webhooks.
 """
 
-from typing import Any
+from typing import Any, Optional
 
 from app.client.fellow_api import FellowApiClient
+from app.logging.metrics import RequestMetrics
 
 
 def list_webhooks(
     arguments: dict[str, Any],
     client: FellowApiClient,
+    metrics: Optional[RequestMetrics] = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
     """List webhooks with optional limit and cursor query parameters.
@@ -25,6 +27,7 @@ def list_webhooks(
             - limit (int): Max results to return (1-50, default 50).
             - cursor (str): Pagination cursor for next page.
         client: Fellow API HTTP client.
+        metrics: Optional RequestMetrics to accumulate timing/size data.
 
     Returns:
         Webhook list response from the Fellow API.
@@ -37,12 +40,13 @@ def list_webhooks(
     if "cursor" in arguments:
         params["cursor"] = arguments["cursor"]
 
-    return client.get("/api/v1/webhook", params=params or None)
+    return client.get("/api/v1/webhook", params=params or None, metrics=metrics)
 
 
 def get_webhook(
     arguments: dict[str, Any],
     client: FellowApiClient,
+    metrics: Optional[RequestMetrics] = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
     """Retrieve a single webhook by ID.
@@ -52,6 +56,7 @@ def get_webhook(
     Args:
         arguments: Validated tool arguments with required 'id' key.
         client: Fellow API HTTP client.
+        metrics: Optional RequestMetrics to accumulate timing/size data.
 
     Returns:
         Webhook details from the Fellow API.
@@ -59,12 +64,13 @@ def get_webhook(
     Validates: Requirements 8.3
     """
     webhook_id = arguments["id"]
-    return client.get(f"/api/v1/webhook/{webhook_id}")
+    return client.get(f"/api/v1/webhook/{webhook_id}", metrics=metrics)
 
 
 def create_webhook(
     arguments: dict[str, Any],
     client: FellowApiClient,
+    metrics: Optional[RequestMetrics] = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
     """Create a new webhook.
@@ -80,6 +86,7 @@ def create_webhook(
             - description (str): Human-readable description.
             - status (str): "active" or "inactive".
         client: Fellow API HTTP client.
+        metrics: Optional RequestMetrics to accumulate timing/size data.
 
     Returns:
         Created webhook details from the Fellow API.
@@ -96,12 +103,13 @@ def create_webhook(
     if "status" in arguments:
         body["status"] = arguments["status"]
 
-    return client.post("/api/v1/webhook", body=body)
+    return client.post("/api/v1/webhook", body=body, metrics=metrics)
 
 
 def update_webhook(
     arguments: dict[str, Any],
     client: FellowApiClient,
+    metrics: Optional[RequestMetrics] = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
     """Update an existing webhook.
@@ -117,6 +125,7 @@ def update_webhook(
             - description (str): New description.
             - status (str): "active" or "inactive".
         client: Fellow API HTTP client.
+        metrics: Optional RequestMetrics to accumulate timing/size data.
 
     Returns:
         Updated webhook details from the Fellow API.
@@ -131,12 +140,13 @@ def update_webhook(
         if field in arguments:
             body[field] = arguments[field]
 
-    return client.put(f"/api/v1/webhook/{webhook_id}", body=body)
+    return client.put(f"/api/v1/webhook/{webhook_id}", body=body, metrics=metrics)
 
 
 def delete_webhook(
     arguments: dict[str, Any],
     client: FellowApiClient,
+    metrics: Optional[RequestMetrics] = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
     """Delete a webhook by ID.
@@ -146,6 +156,7 @@ def delete_webhook(
     Args:
         arguments: Validated tool arguments with required 'id' key.
         client: Fellow API HTTP client.
+        metrics: Optional RequestMetrics to accumulate timing/size data.
 
     Returns:
         Confirmation dict with 'deleted' flag and webhook 'id'.
@@ -153,5 +164,5 @@ def delete_webhook(
     Validates: Requirements 8.5
     """
     webhook_id = arguments["id"]
-    client.delete(f"/api/v1/webhook/{webhook_id}")
+    client.delete(f"/api/v1/webhook/{webhook_id}", metrics=metrics)
     return {"deleted": True, "id": webhook_id}

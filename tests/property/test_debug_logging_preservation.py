@@ -324,7 +324,7 @@ class TestToolCallInfoEntryFormat:
 
         # Verify required fields are present
         assert "tool" in entry, f"tool_call entry missing 'tool' field: {entry}"
-        assert "duration_ms" in entry, f"tool_call entry missing 'duration_ms' field: {entry}"
+        assert "timings" in entry, f"tool_call entry missing 'timings' field: {entry}"
         assert "outcome" in entry, f"tool_call entry missing 'outcome' field: {entry}"
         assert "request_id" in entry, f"tool_call entry missing 'request_id' field: {entry}"
 
@@ -333,9 +333,15 @@ class TestToolCallInfoEntryFormat:
             f"Expected tool={tool_name}, got tool={entry['tool']}"
         )
 
-        # Verify duration_ms is a number
-        assert isinstance(entry["duration_ms"], (int, float)), (
-            f"duration_ms should be numeric, got {type(entry['duration_ms'])}"
+        # Verify timings contains total_ms as a number
+        assert isinstance(entry["timings"], dict), (
+            f"timings should be a dict, got {type(entry['timings'])}"
+        )
+        assert "total_ms" in entry["timings"], (
+            f"timings missing 'total_ms' field: {entry['timings']}"
+        )
+        assert isinstance(entry["timings"]["total_ms"], (int, float)), (
+            f"timings.total_ms should be numeric, got {type(entry['timings']['total_ms'])}"
         )
 
         # Verify outcome is a string

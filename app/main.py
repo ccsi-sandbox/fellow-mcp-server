@@ -12,6 +12,7 @@ from app.auth.guard import AuthGuard
 from app.client.fellow_api import FellowApiClient, FellowApiError
 from app.client.paginator import CursorPaginator, PaginationError
 from app.config import AppConfig
+from app.logging.metrics import RequestMetrics
 from app.logging.setup import bind_request_id, configure_logging
 from app.mcp.errors import (
     INTERNAL_ERROR,
@@ -389,6 +390,7 @@ def _handle_tools_call(
 
     Dispatches to the appropriate tool handler after validation.
     Logs tool name, execution duration, and outcome at INFO level.
+    Collects RequestMetrics for structured timing and size logging.
 
     Args:
         parsed: The parsed JSON-RPC request.
@@ -405,8 +407,12 @@ def _handle_tools_call(
     tool_name = params["name"]
     arguments = params["arguments"]
 
-    start_time = time.time()
+    # Create metrics collector at handler entry
+    metrics = RequestMetrics(start_time=time.time())
     outcome = "success"
+
+    # Record incoming MCP request size
+    metrics.mcp_request_bytes = len(request.get_data())
 
     try:
         # Get handler (raises ToolNotFoundError if unknown)
@@ -414,34 +420,51 @@ def _handle_tools_call(
             handler = registry.get_handler(tool_name)
         except ToolNotFoundError:
             outcome = "error_tool_not_found"
+            # No upstream call made — zero out upstream-related steps
+            metrics.upstream_api_ms = 0.0
+            metrics.retry_wait_ms = 0.0
+            metrics.serialization_ms = 0.0
             response_body = build_jsonrpc_error(
                 request_id, INVALID_PARAMS, f"Unknown tool: {tool_name}"
             )
+            response_json = json.dumps(response_body)
+            metrics.mcp_response_bytes = len(response_json.encode("utf-8"))
+            metrics.overhead_ms = metrics.compute_overhead_ms()
             return Response(
-                json.dumps(response_body),
+                response_json,
                 status=200,
                 content_type="application/json",
             ), 200
 
-        # Validate input
+        # Validate input — time the validation step
+        val_start = time.time()
         errors = validator.validate(tool_name, arguments)
+        metrics.validation_ms = round((time.time() - val_start) * 1000, 2)
+
         if errors:
             outcome = "error_validation"
+            # No upstream call made — zero out upstream-related steps
+            metrics.upstream_api_ms = 0.0
+            metrics.retry_wait_ms = 0.0
+            metrics.serialization_ms = 0.0
             error_text = "Validation errors:\n" + "\n".join(f"- {e}" for e in errors)
             response_body = build_tool_result(
                 request_id,
                 [{"type": "text", "text": error_text}],
                 is_error=True,
             )
+            response_json = json.dumps(response_body)
+            metrics.mcp_response_bytes = len(response_json.encode("utf-8"))
+            metrics.overhead_ms = metrics.compute_overhead_ms()
             return Response(
-                json.dumps(response_body),
+                response_json,
                 status=200,
                 content_type="application/json",
             ), 200
 
         # Execute handler
         try:
-            result = handler(arguments=arguments, client=api_client, paginator=paginator)
+            result = handler(arguments=arguments, client=api_client, paginator=paginator, metrics=metrics)
         except FellowApiError as e:
             outcome = "error_fellow_api"
             error_text = f"Fellow API error (HTTP {e.status_code}): {e.message}"
@@ -450,8 +473,11 @@ def _handle_tools_call(
                 [{"type": "text", "text": error_text}],
                 is_error=True,
             )
+            response_json = json.dumps(response_body)
+            metrics.mcp_response_bytes = len(response_json.encode("utf-8"))
+            metrics.overhead_ms = metrics.compute_overhead_ms()
             return Response(
-                json.dumps(response_body),
+                response_json,
                 status=200,
                 content_type="application/json",
             ), 200
@@ -463,8 +489,11 @@ def _handle_tools_call(
                 [{"type": "text", "text": error_text}],
                 is_error=True,
             )
+            response_json = json.dumps(response_body)
+            metrics.mcp_response_bytes = len(response_json.encode("utf-8"))
+            metrics.overhead_ms = metrics.compute_overhead_ms()
             return Response(
-                json.dumps(response_body),
+                response_json,
                 status=200,
                 content_type="application/json",
             ), 200
@@ -477,21 +506,30 @@ def _handle_tools_call(
                 [{"type": "text", "text": error_text}],
                 is_error=True,
             )
+            response_json = json.dumps(response_body)
+            metrics.mcp_response_bytes = len(response_json.encode("utf-8"))
+            metrics.overhead_ms = metrics.compute_overhead_ms()
             return Response(
-                json.dumps(response_body),
+                response_json,
                 status=200,
                 content_type="application/json",
             ), 200
 
-        # Build success response
+        # Serialize success response — time the serialization step
+        ser_start = time.time()
         result_text = json.dumps(result)
+        metrics.serialization_ms = round((time.time() - ser_start) * 1000, 2)
+
         response_body = build_tool_result(
             request_id,
             [{"type": "text", "text": result_text}],
             is_error=False,
         )
+        response_json = json.dumps(response_body)
+        metrics.mcp_response_bytes = len(response_json.encode("utf-8"))
+        metrics.overhead_ms = metrics.compute_overhead_ms()
         return Response(
-            json.dumps(response_body),
+            response_json,
             status=200,
             content_type="application/json",
         ), 200
@@ -501,20 +539,57 @@ def _handle_tools_call(
         response_body = build_jsonrpc_error(
             request_id, INTERNAL_ERROR, f"Internal error: {str(e)}"
         )
+        response_json = json.dumps(response_body)
+        metrics.mcp_response_bytes = len(response_json.encode("utf-8"))
+        metrics.overhead_ms = metrics.compute_overhead_ms()
         return Response(
-            json.dumps(response_body),
+            response_json,
             status=200,
             content_type="application/json",
         ), 200
 
     finally:
-        duration_ms = round((time.time() - start_time) * 1000, 2)
-        logger.info(
-            "tool_call",
-            tool=tool_name,
-            duration_ms=duration_ms,
-            outcome=outcome,
-        )
+        try:
+            timings = metrics.build_timings_dict()
+
+            log_kwargs: dict[str, Any] = {
+                "tool": tool_name,
+                "outcome": outcome,
+                "timings": timings,
+                "mcp_request_bytes": metrics.mcp_request_bytes,
+                "mcp_response_bytes": metrics.mcp_response_bytes,
+                "upstream_request_bytes": metrics.upstream_request_bytes,
+                "upstream_response_bytes": metrics.upstream_response_bytes,
+                "upstream_api_calls": [
+                    {
+                        "page": call.page,
+                        "duration_ms": call.duration_ms,
+                        "status_code": call.status_code,
+                        "request_bytes": call.request_bytes,
+                        "response_bytes": call.response_bytes,
+                    }
+                    for call in metrics.upstream_api_calls
+                ],
+            }
+
+            # Omit upstream_status_code when no upstream call was made (Req 3.6)
+            if metrics.upstream_status_code is not None:
+                log_kwargs["upstream_status_code"] = metrics.upstream_status_code
+
+            logger.info("tool_call", **log_kwargs)
+        except Exception as metrics_error:
+            # Metrics computation failed — emit degraded log without timings
+            logger.warning(
+                "tool_call_metrics_error",
+                tool=tool_name,
+                outcome=outcome,
+                error=str(metrics_error),
+            )
+            logger.info(
+                "tool_call",
+                tool=tool_name,
+                outcome=outcome,
+            )
 
 
 if __name__ == "__main__":

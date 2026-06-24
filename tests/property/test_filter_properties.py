@@ -4,7 +4,7 @@
 
 Tests that filter parameters provided to list tools are passed through exactly
 to the Fellow API request body, with no omissions and no additions beyond
-pagination parameters (page_size, cursor).
+expected structural keys (pagination, filters, include, order_by, media_url).
 """
 
 from typing import Any
@@ -85,14 +85,19 @@ recording_filters = st.fixed_dictionaries({}, optional={
 })
 
 
-# Pagination keys that the paginator is allowed to add
-PAGINATION_KEYS = {"page_size", "cursor"}
+# Structural keys the tools are allowed to add to the body
+STRUCTURAL_KEYS = {"pagination", "filters", "include", "order_by", "media_url"}
 
 
 def _make_mock_client() -> MagicMock:
-    """Create a mock FellowApiClient whose post() returns a single page response."""
+    """Create a mock FellowApiClient whose post() returns a nested page response."""
     mock_client = MagicMock()
-    mock_client.post.return_value = {"results": [{"id": "test-1"}], "cursor": None}
+    # Return the nested format the paginator expects
+    mock_client.post.return_value = {
+        "action_items": {"data": [{"id": "test-1"}], "page_info": {"cursor": None, "page_size": 50}},
+        "notes": {"data": [{"id": "test-1"}], "page_info": {"cursor": None, "page_size": 50}},
+        "recordings": {"data": [{"id": "test-1"}], "page_info": {"cursor": None, "page_size": 50}},
+    }
     return mock_client
 
 
@@ -118,8 +123,8 @@ class TestFilterPassthrough:
 
     For any valid combination of filter parameters for list tools
     (action items, notes, recordings), the request sent to the Fellow API
-    SHALL contain exactly those filter values in the request body, with no
-    omissions and no additions beyond pagination parameters.
+    SHALL contain those filter values in the appropriate nested structure,
+    with no omissions and no unexpected additions.
 
     **Validates: Requirements 5.1, 6.1, 7.1**
     """
@@ -142,15 +147,24 @@ class TestFilterPassthrough:
 
         body = _extract_body_from_post_call(mock_client)
 
-        # All provided filter values must appear in the body
-        for key, value in filters.items():
-            assert key in body, f"Filter '{key}' missing from request body"
-            assert body[key] == value, (
-                f"Filter '{key}' has wrong value: expected {value!r}, got {body[key]!r}"
+        # Filter keys go in a nested "filters" object
+        filter_keys = ("completed", "archived", "ai_detected", "scope")
+        body_filters = body.get("filters", {})
+        for key in filter_keys:
+            if key in filters:
+                assert key in body_filters, f"Filter '{key}' missing from request body filters"
+                assert body_filters[key] == filters[key], (
+                    f"Filter '{key}' has wrong value: expected {filters[key]!r}, got {body_filters[key]!r}"
+                )
+
+        # "ordering" maps to "order_by" at top level
+        if "ordering" in filters:
+            assert body.get("order_by") == filters["ordering"], (
+                f"ordering not passed through as order_by"
             )
 
-        # No extra keys beyond filters + pagination params
-        extra_keys = set(body.keys()) - set(filters.keys()) - PAGINATION_KEYS
+        # No extra top-level keys beyond structural ones
+        extra_keys = set(body.keys()) - STRUCTURAL_KEYS
         assert extra_keys == set(), (
             f"Unexpected extra keys in request body: {extra_keys}"
         )
@@ -173,15 +187,29 @@ class TestFilterPassthrough:
 
         body = _extract_body_from_post_call(mock_client)
 
-        # All provided filter values must appear in the body
-        for key, value in filters.items():
-            assert key in body, f"Filter '{key}' missing from request body"
-            assert body[key] == value, (
-                f"Filter '{key}' has wrong value: expected {value!r}, got {body[key]!r}"
-            )
+        # Filter fields go in nested "filters" object
+        filter_keys = [
+            "event_guid", "created_at_start", "created_at_end",
+            "updated_at_start", "updated_at_end", "channel_id",
+            "title", "event_attendees",
+        ]
+        body_filters = body.get("filters", {})
+        for key in filter_keys:
+            if key in filters:
+                assert key in body_filters, f"Filter '{key}' missing from request body filters"
+                assert body_filters[key] == filters[key], (
+                    f"Filter '{key}' has wrong value: expected {filters[key]!r}, got {body_filters[key]!r}"
+                )
 
-        # No extra keys beyond filters + pagination params
-        extra_keys = set(body.keys()) - set(filters.keys()) - PAGINATION_KEYS
+        # "include" maps to a nested include object with boolean values
+        if "include" in filters:
+            body_include = body.get("include", {})
+            for field in filters["include"]:
+                assert field in body_include, f"Include '{field}' missing from body"
+                assert body_include[field] is True
+
+        # No extra top-level keys beyond structural ones
+        extra_keys = set(body.keys()) - STRUCTURAL_KEYS
         assert extra_keys == set(), (
             f"Unexpected extra keys in request body: {extra_keys}"
         )
@@ -204,15 +232,34 @@ class TestFilterPassthrough:
 
         body = _extract_body_from_post_call(mock_client)
 
-        # All provided filter values must appear in the body
-        for key, value in filters.items():
-            assert key in body, f"Filter '{key}' missing from request body"
-            assert body[key] == value, (
-                f"Filter '{key}' has wrong value: expected {value!r}, got {body[key]!r}"
-            )
+        # Filter fields go in nested "filters" object
+        filter_keys = [
+            "event_guid", "created_at_start", "created_at_end",
+            "updated_at_start", "updated_at_end", "channel_id",
+            "title",
+        ]
+        body_filters = body.get("filters", {})
+        for key in filter_keys:
+            if key in filters:
+                assert key in body_filters, f"Filter '{key}' missing from request body filters"
+                assert body_filters[key] == filters[key], (
+                    f"Filter '{key}' has wrong value: expected {filters[key]!r}, got {body_filters[key]!r}"
+                )
 
-        # No extra keys beyond filters + pagination params
-        extra_keys = set(body.keys()) - set(filters.keys()) - PAGINATION_KEYS
+        # "include" maps to a nested include object with boolean values
+        if "include" in filters:
+            body_include = body.get("include", {})
+            for field in filters["include"]:
+                assert field in body_include, f"Include '{field}' missing from body"
+                assert body_include[field] is True
+
+        # media_url maps to a nested object when True
+        if "media_url" in filters and filters["media_url"]:
+            assert "media_url" in body, "media_url missing from body when True"
+            assert body["media_url"] == {"include": True}
+
+        # No extra top-level keys beyond structural ones
+        extra_keys = set(body.keys()) - STRUCTURAL_KEYS
         assert extra_keys == set(), (
             f"Unexpected extra keys in request body: {extra_keys}"
         )
@@ -233,10 +280,10 @@ class TestFilterPassthrough:
 
         body = _extract_body_from_post_call(mock_client)
 
-        # Body should only contain pagination keys
-        non_pagination_keys = set(body.keys()) - PAGINATION_KEYS
-        assert non_pagination_keys == set(), (
-            f"Unexpected keys when no filters provided: {non_pagination_keys}"
+        # Body should only contain pagination key
+        non_structural_keys = set(body.keys()) - STRUCTURAL_KEYS
+        assert non_structural_keys == set(), (
+            f"Unexpected keys when no filters provided: {non_structural_keys}"
         )
 
     def test_note_empty_filters_only_adds_pagination(self):
@@ -255,10 +302,10 @@ class TestFilterPassthrough:
 
         body = _extract_body_from_post_call(mock_client)
 
-        # Body should only contain pagination keys
-        non_pagination_keys = set(body.keys()) - PAGINATION_KEYS
-        assert non_pagination_keys == set(), (
-            f"Unexpected keys when no filters provided: {non_pagination_keys}"
+        # Body should only contain pagination key
+        non_structural_keys = set(body.keys()) - STRUCTURAL_KEYS
+        assert non_structural_keys == set(), (
+            f"Unexpected keys when no filters provided: {non_structural_keys}"
         )
 
     def test_recording_empty_filters_only_adds_pagination(self):
@@ -277,8 +324,8 @@ class TestFilterPassthrough:
 
         body = _extract_body_from_post_call(mock_client)
 
-        # Body should only contain pagination keys
-        non_pagination_keys = set(body.keys()) - PAGINATION_KEYS
-        assert non_pagination_keys == set(), (
-            f"Unexpected keys when no filters provided: {non_pagination_keys}"
+        # Body should only contain pagination key
+        non_structural_keys = set(body.keys()) - STRUCTURAL_KEYS
+        assert non_structural_keys == set(), (
+            f"Unexpected keys when no filters provided: {non_structural_keys}"
         )

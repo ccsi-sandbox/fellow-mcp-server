@@ -30,7 +30,7 @@ class TestGetCurrentUser:
 
         result = get_current_user({}, mock_client)
 
-        mock_client.get.assert_called_once_with("/api/v1/me")
+        mock_client.get.assert_called_once_with("/api/v1/me", metrics=None)
         assert result == {
             "id": "user-123",
             "full_name": "Jane Doe",
@@ -72,7 +72,7 @@ class TestGetCurrentUser:
             {"unexpected_param": "value"}, mock_client
         )
 
-        mock_client.get.assert_called_once_with("/api/v1/me")
+        mock_client.get.assert_called_once_with("/api/v1/me", metrics=None)
         assert result["id"] == "user-1"
 
     def test_get_current_user_500_error_raises(self, mock_client):

@@ -37,7 +37,7 @@ class TestListRecordings:
         mock_paginator.fetch_all.assert_called_once()
 
     def test_list_recordings_with_filters(self, mock_client, mock_paginator):
-        """list_recordings passes filter params to the request body."""
+        """list_recordings passes filter params in nested 'filters' object."""
         mock_paginator.fetch_all.return_value = ([], False)
 
         arguments = {
@@ -48,61 +48,43 @@ class TestListRecordings:
         }
         list_recordings(arguments, mock_client, mock_paginator)
 
-        # Get the request_fn that was passed to fetch_all
-        request_fn = mock_paginator.fetch_all.call_args[0][0]
+        call_kwargs = mock_paginator.fetch_all.call_args.kwargs
+        base_body = call_kwargs["base_body"]
 
-        # Call request_fn with pagination params to verify body content
-        mock_client.post.return_value = {"results": [], "cursor": None}
-        request_fn({"page_size": 50})
-
-        mock_client.post.assert_called_once_with(
-            "/api/v1/recordings",
-            body={
-                "event_guid": "guid-abc",
-                "created_at_start": "2024-01-01",
-                "created_at_end": "2024-06-30",
-                "title": "Sprint Review",
-                "page_size": 50,
-            },
-        )
+        assert base_body["filters"] == {
+            "event_guid": "guid-abc",
+            "created_at_start": "2024-01-01",
+            "created_at_end": "2024-06-30",
+            "title": "Sprint Review",
+        }
+        assert call_kwargs["response_key"] == "recordings"
 
     def test_list_recordings_with_include_options(self, mock_client, mock_paginator):
-        """list_recordings passes include options in the request body."""
+        """list_recordings passes include options as nested boolean object."""
         mock_paginator.fetch_all.return_value = ([], False)
 
         arguments = {"include": ["transcript", "ai_notes"]}
         list_recordings(arguments, mock_client, mock_paginator)
 
-        request_fn = mock_paginator.fetch_all.call_args[0][0]
-        mock_client.post.return_value = {"results": [], "cursor": None}
-        request_fn({"page_size": 50})
+        call_kwargs = mock_paginator.fetch_all.call_args.kwargs
+        base_body = call_kwargs["base_body"]
 
-        mock_client.post.assert_called_once_with(
-            "/api/v1/recordings",
-            body={
-                "include": ["transcript", "ai_notes"],
-                "page_size": 50,
-            },
-        )
+        assert base_body["include"] == {
+            "transcript": True,
+            "ai_notes": True,
+        }
 
     def test_list_recordings_with_media_url_flag(self, mock_client, mock_paginator):
-        """list_recordings passes media_url flag in the request body."""
+        """list_recordings passes media_url as nested config object."""
         mock_paginator.fetch_all.return_value = ([], False)
 
         arguments = {"media_url": True}
         list_recordings(arguments, mock_client, mock_paginator)
 
-        request_fn = mock_paginator.fetch_all.call_args[0][0]
-        mock_client.post.return_value = {"results": [], "cursor": None}
-        request_fn({"page_size": 50})
+        call_kwargs = mock_paginator.fetch_all.call_args.kwargs
+        base_body = call_kwargs["base_body"]
 
-        mock_client.post.assert_called_once_with(
-            "/api/v1/recordings",
-            body={
-                "media_url": True,
-                "page_size": 50,
-            },
-        )
+        assert base_body["media_url"] == {"include": True}
 
     def test_list_recordings_with_filters_includes_and_media_url(
         self, mock_client, mock_paginator
@@ -117,19 +99,12 @@ class TestListRecordings:
         }
         list_recordings(arguments, mock_client, mock_paginator)
 
-        request_fn = mock_paginator.fetch_all.call_args[0][0]
-        mock_client.post.return_value = {"results": [], "cursor": None}
-        request_fn({"page_size": 50})
+        call_kwargs = mock_paginator.fetch_all.call_args.kwargs
+        base_body = call_kwargs["base_body"]
 
-        mock_client.post.assert_called_once_with(
-            "/api/v1/recordings",
-            body={
-                "channel_id": "ch-789",
-                "include": ["transcript"],
-                "media_url": True,
-                "page_size": 50,
-            },
-        )
+        assert base_body["filters"] == {"channel_id": "ch-789"}
+        assert base_body["include"] == {"transcript": True}
+        assert base_body["media_url"] == {"include": True}
 
     def test_list_recordings_truncated_results(self, mock_client, mock_paginator):
         """list_recordings includes truncation indicator when paginator truncates."""
@@ -170,42 +145,31 @@ class TestListRecordings:
         }
         list_recordings(arguments, mock_client, mock_paginator)
 
-        request_fn = mock_paginator.fetch_all.call_args[0][0]
-        mock_client.post.return_value = {"results": [], "cursor": None}
-        request_fn({"page_size": 50})
+        call_kwargs = mock_paginator.fetch_all.call_args.kwargs
+        base_body = call_kwargs["base_body"]
 
-        mock_client.post.assert_called_once_with(
-            "/api/v1/recordings",
-            body={
-                "event_guid": "guid-1",
-                "created_at_start": "2024-01-01",
-                "created_at_end": "2024-12-31",
-                "updated_at_start": "2024-06-01",
-                "updated_at_end": "2024-06-30",
-                "channel_id": "ch-1",
-                "title": "Retro",
-                "page_size": 50,
-            },
-        )
+        assert base_body["filters"] == {
+            "event_guid": "guid-1",
+            "created_at_start": "2024-01-01",
+            "created_at_end": "2024-12-31",
+            "updated_at_start": "2024-06-01",
+            "updated_at_end": "2024-06-30",
+            "channel_id": "ch-1",
+            "title": "Retro",
+        }
 
     def test_list_recordings_media_url_false(self, mock_client, mock_paginator):
-        """list_recordings passes media_url=False when explicitly set."""
+        """list_recordings does not include media_url object when media_url=False."""
         mock_paginator.fetch_all.return_value = ([], False)
 
         arguments = {"media_url": False}
         list_recordings(arguments, mock_client, mock_paginator)
 
-        request_fn = mock_paginator.fetch_all.call_args[0][0]
-        mock_client.post.return_value = {"results": [], "cursor": None}
-        request_fn({"page_size": 50})
+        call_kwargs = mock_paginator.fetch_all.call_args.kwargs
+        base_body = call_kwargs["base_body"]
 
-        mock_client.post.assert_called_once_with(
-            "/api/v1/recordings",
-            body={
-                "media_url": False,
-                "page_size": 50,
-            },
-        )
+        # When media_url is False, the "media_url" key should NOT be in the body
+        assert "media_url" not in base_body
 
 
 class TestGetRecording:
@@ -221,7 +185,7 @@ class TestGetRecording:
         result = get_recording({"id": "rec-123"}, mock_client)
 
         mock_client.get.assert_called_once_with(
-            "/api/v1/recording/rec-123", params=None
+            "/api/v1/recording/rec-123", params=None, metrics=None
         )
         assert result == {"id": "rec-123", "title": "Team Standup"}
 
@@ -241,6 +205,7 @@ class TestGetRecording:
         mock_client.get.assert_called_once_with(
             "/api/v1/recording/rec-456",
             params={"include": "transcript,ai_notes"},
+            metrics=None,
         )
         assert result["id"] == "rec-456"
         assert result["transcript"] == "Hello everyone..."
@@ -260,6 +225,7 @@ class TestGetRecording:
         mock_client.get.assert_called_once_with(
             "/api/v1/recording/rec-789",
             params={"media_url": True},
+            metrics=None,
         )
         assert result["media_url"] == "https://example.com/media.mp4"
 
@@ -275,6 +241,7 @@ class TestGetRecording:
         mock_client.get.assert_called_once_with(
             "/api/v1/recording/rec-100",
             params={"include": "transcript", "media_url": True},
+            metrics=None,
         )
 
     def test_get_recording_with_special_characters_in_id(self, mock_client):
@@ -284,7 +251,7 @@ class TestGetRecording:
         result = get_recording({"id": "abc-123_def"}, mock_client)
 
         mock_client.get.assert_called_once_with(
-            "/api/v1/recording/abc-123_def", params=None
+            "/api/v1/recording/abc-123_def", params=None, metrics=None
         )
         assert result["id"] == "abc-123_def"
 
@@ -298,7 +265,7 @@ class TestDeleteRecording:
 
         result = delete_recording({"id": "rec-456"}, mock_client)
 
-        mock_client.delete.assert_called_once_with("/api/v1/recording/rec-456")
+        mock_client.delete.assert_called_once_with("/api/v1/recording/rec-456", metrics=None)
         assert result == {"deleted": True, "id": "rec-456"}
 
     def test_delete_recording_returns_id_in_confirmation(self, mock_client):

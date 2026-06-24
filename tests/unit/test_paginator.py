@@ -5,20 +5,29 @@ import pytest
 from app.client.paginator import CursorPaginator, PaginationError
 
 
+def _make_response(results: list, cursor: str | None, response_key: str = "items") -> dict:
+    """Build a response in the nested format expected by the paginator."""
+    return {
+        response_key: {
+            "data": results,
+            "page_info": {"cursor": cursor, "page_size": 50},
+        }
+    }
+
+
 class TestCursorPaginatorFetchAll:
     """Tests for CursorPaginator.fetch_all()."""
 
     def test_single_page_no_cursor(self):
         """Single page with null cursor returns results, not truncated."""
-        responses = [{"results": [{"id": "1"}, {"id": "2"}], "cursor": None}]
         call_count = {"n": 0}
 
         def request_fn(params):
             call_count["n"] += 1
-            return responses.pop(0)
+            return _make_response([{"id": "1"}, {"id": "2"}], None)
 
         paginator = CursorPaginator(max_pages=20, page_size=50)
-        results, was_truncated = paginator.fetch_all(request_fn, {})
+        results, was_truncated = paginator.fetch_all(request_fn, {}, "items")
 
         assert results == [{"id": "1"}, {"id": "2"}]
         assert was_truncated is False
@@ -27,16 +36,16 @@ class TestCursorPaginatorFetchAll:
     def test_multiple_pages_until_null_cursor(self):
         """Multiple pages fetched until cursor becomes null."""
         responses = [
-            {"results": [{"id": "1"}], "cursor": "cursor_a"},
-            {"results": [{"id": "2"}], "cursor": "cursor_b"},
-            {"results": [{"id": "3"}], "cursor": None},
+            _make_response([{"id": "1"}], "cursor_a"),
+            _make_response([{"id": "2"}], "cursor_b"),
+            _make_response([{"id": "3"}], None),
         ]
 
         def request_fn(params):
             return responses.pop(0)
 
         paginator = CursorPaginator(max_pages=20, page_size=50)
-        results, was_truncated = paginator.fetch_all(request_fn, {})
+        results, was_truncated = paginator.fetch_all(request_fn, {}, "items")
 
         assert results == [{"id": "1"}, {"id": "2"}, {"id": "3"}]
         assert was_truncated is False
@@ -44,15 +53,15 @@ class TestCursorPaginatorFetchAll:
     def test_results_combined_in_page_order(self):
         """Results from multiple pages are concatenated in order."""
         responses = [
-            {"results": [{"id": "a"}, {"id": "b"}], "cursor": "next"},
-            {"results": [{"id": "c"}, {"id": "d"}], "cursor": None},
+            _make_response([{"id": "a"}, {"id": "b"}], "next"),
+            _make_response([{"id": "c"}, {"id": "d"}], None),
         ]
 
         def request_fn(params):
             return responses.pop(0)
 
         paginator = CursorPaginator(max_pages=20, page_size=50)
-        results, _ = paginator.fetch_all(request_fn, {})
+        results, _ = paginator.fetch_all(request_fn, {}, "items")
 
         assert results == [{"id": "a"}, {"id": "b"}, {"id": "c"}, {"id": "d"}]
 
@@ -62,10 +71,10 @@ class TestCursorPaginatorFetchAll:
 
         def request_fn(params):
             page_count["n"] += 1
-            return {"results": [{"id": str(page_count["n"])}], "cursor": "more"}
+            return _make_response([{"id": str(page_count["n"])}], "more")
 
         paginator = CursorPaginator(max_pages=3, page_size=50)
-        results, was_truncated = paginator.fetch_all(request_fn, {})
+        results, was_truncated = paginator.fetch_all(request_fn, {}, "items")
 
         assert len(results) == 3
         assert was_truncated is True
@@ -82,24 +91,26 @@ class TestCursorPaginatorFetchAll:
         assert paginator._page_size == 50
 
     def test_page_size_passed_to_request_fn(self):
-        """page_size is included in params to request_fn."""
+        """page_size is included in the pagination object passed to request_fn."""
         captured_params = []
 
         def request_fn(params):
             captured_params.append(params)
-            return {"results": [], "cursor": None}
+            return _make_response([], None)
 
         paginator = CursorPaginator(max_pages=20, page_size=50)
-        paginator.fetch_all(request_fn, {"filter": "value"})
+        paginator.fetch_all(request_fn, {"filter": "value"}, "items")
 
-        assert captured_params[0] == {"filter": "value", "page_size": 50}
+        # The paginator wraps with a "pagination" key
+        assert captured_params[0]["pagination"]["page_size"] == 50
+        assert captured_params[0]["filter"] == "value"
 
     def test_cursor_passed_on_subsequent_pages(self):
         """Cursor from previous response is included in next request params."""
         captured_params = []
         responses = [
-            {"results": [{"id": "1"}], "cursor": "abc123"},
-            {"results": [{"id": "2"}], "cursor": None},
+            _make_response([{"id": "1"}], "abc123"),
+            _make_response([{"id": "2"}], None),
         ]
 
         def request_fn(params):
@@ -107,23 +118,23 @@ class TestCursorPaginatorFetchAll:
             return responses.pop(0)
 
         paginator = CursorPaginator(max_pages=20, page_size=50)
-        paginator.fetch_all(request_fn, {"filter": "x"})
+        paginator.fetch_all(request_fn, {"filter": "x"}, "items")
 
-        # First request: no cursor
-        assert "cursor" not in captured_params[0]
-        assert captured_params[0] == {"filter": "x", "page_size": 50}
+        # First request: cursor is None
+        assert captured_params[0]["pagination"]["cursor"] is None
+        assert captured_params[0]["filter"] == "x"
 
-        # Second request: includes cursor
-        assert captured_params[1] == {"filter": "x", "page_size": 50, "cursor": "abc123"}
+        # Second request: includes cursor from previous response
+        assert captured_params[1]["pagination"]["cursor"] == "abc123"
 
     def test_empty_results_with_null_cursor(self):
         """Handles empty results on first page gracefully."""
 
         def request_fn(params):
-            return {"results": [], "cursor": None}
+            return _make_response([], None)
 
         paginator = CursorPaginator(max_pages=20, page_size=50)
-        results, was_truncated = paginator.fetch_all(request_fn, {})
+        results, was_truncated = paginator.fetch_all(request_fn, {}, "items")
 
         assert results == []
         assert was_truncated is False
@@ -137,7 +148,7 @@ class TestCursorPaginatorFetchAll:
         paginator = CursorPaginator(max_pages=20, page_size=50)
 
         with pytest.raises(PaginationError) as exc_info:
-            paginator.fetch_all(request_fn, {})
+            paginator.fetch_all(request_fn, {}, "items")
 
         assert exc_info.value.page_number == 1
         assert isinstance(exc_info.value.cause, RuntimeError)
@@ -151,12 +162,12 @@ class TestCursorPaginatorFetchAll:
             call_count["n"] += 1
             if call_count["n"] == 3:
                 raise ValueError("server error")
-            return {"results": [{"id": str(call_count["n"])}], "cursor": "next"}
+            return _make_response([{"id": str(call_count["n"])}], "next")
 
         paginator = CursorPaginator(max_pages=20, page_size=50)
 
         with pytest.raises(PaginationError) as exc_info:
-            paginator.fetch_all(request_fn, {})
+            paginator.fetch_all(request_fn, {}, "items")
 
         assert exc_info.value.page_number == 3
         assert isinstance(exc_info.value.cause, ValueError)
@@ -169,12 +180,12 @@ class TestCursorPaginatorFetchAll:
             call_count["n"] += 1
             if call_count["n"] == 2:
                 raise RuntimeError("boom")
-            return {"results": [{"id": "item"}], "cursor": "next"}
+            return _make_response([{"id": "item"}], "next")
 
         paginator = CursorPaginator(max_pages=20, page_size=50)
 
         with pytest.raises(PaginationError):
-            paginator.fetch_all(request_fn, {})
+            paginator.fetch_all(request_fn, {}, "items")
         # Results are discarded — caller gets no partial data
 
     def test_base_params_not_mutated(self):
@@ -183,10 +194,10 @@ class TestCursorPaginatorFetchAll:
         original = base_params.copy()
 
         def request_fn(params):
-            return {"results": [], "cursor": None}
+            return _make_response([], None)
 
         paginator = CursorPaginator(max_pages=20, page_size=50)
-        paginator.fetch_all(request_fn, base_params)
+        paginator.fetch_all(request_fn, base_params, "items")
 
         assert base_params == original
 
@@ -197,11 +208,11 @@ class TestCursorPaginatorFetchAll:
         def request_fn(params):
             call_count["n"] += 1
             if call_count["n"] < 3:
-                return {"results": [{"id": str(call_count["n"])}], "cursor": "more"}
-            return {"results": [{"id": "3"}], "cursor": None}
+                return _make_response([{"id": str(call_count["n"])}], "more")
+            return _make_response([{"id": "3"}], None)
 
         paginator = CursorPaginator(max_pages=3, page_size=50)
-        results, was_truncated = paginator.fetch_all(request_fn, {})
+        results, was_truncated = paginator.fetch_all(request_fn, {}, "items")
 
         assert len(results) == 3
         assert was_truncated is False
@@ -212,9 +223,9 @@ class TestCursorPaginatorFetchAll:
 
         def request_fn(params):
             captured_params.append(params)
-            return {"results": [], "cursor": None}
+            return _make_response([], None)
 
         paginator = CursorPaginator(max_pages=5, page_size=25)
-        paginator.fetch_all(request_fn, {})
+        paginator.fetch_all(request_fn, {}, "items")
 
-        assert captured_params[0]["page_size"] == 25
+        assert captured_params[0]["pagination"]["page_size"] == 25

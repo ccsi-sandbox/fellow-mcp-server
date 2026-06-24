@@ -1,15 +1,18 @@
 """Action item tool handlers for Fellow.ai API."""
 
-from typing import Any
+from typing import Any, Optional
 
 from app.client.fellow_api import FellowApiClient
 from app.client.paginator import CursorPaginator
+from app.logging.metrics import RequestMetrics
 
 
 def list_action_items(
     arguments: dict[str, Any],
     client: FellowApiClient,
     paginator: CursorPaginator,
+    metrics: Optional[RequestMetrics] = None,
+    **kwargs: Any,
 ) -> dict[str, Any]:
     """List action items with optional filters and pagination.
 
@@ -51,12 +54,13 @@ def list_action_items(
         body["order_by"] = arguments["ordering"]
 
     def request_fn(request_body: dict[str, Any]) -> dict[str, Any]:
-        return client.post("/api/v1/action_items", body=request_body)
+        return client.post("/api/v1/action_items", body=request_body, metrics=metrics)
 
     results, was_truncated = paginator.fetch_all(
         request_fn=request_fn,
         base_body=body,
         response_key="action_items",
+        metrics=metrics,
     )
 
     response: dict[str, Any] = {"results": results}
@@ -70,6 +74,7 @@ def list_action_items(
 def get_action_item(
     arguments: dict[str, Any],
     client: FellowApiClient,
+    metrics: Optional[RequestMetrics] = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
     """Get a single action item by ID.
@@ -77,12 +82,13 @@ def get_action_item(
     Sends a GET request to /api/v1/action_item/{id}.
     """
     action_item_id = arguments["id"]
-    return client.get(f"/api/v1/action_item/{action_item_id}")
+    return client.get(f"/api/v1/action_item/{action_item_id}", metrics=metrics)
 
 
 def complete_action_item(
     arguments: dict[str, Any],
     client: FellowApiClient,
+    metrics: Optional[RequestMetrics] = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
     """Complete or uncomplete an action item.
@@ -95,12 +101,14 @@ def complete_action_item(
     return client.post(
         f"/api/v1/action_item/{action_item_id}/complete",
         body={"completed": completed},
+        metrics=metrics,
     )
 
 
 def archive_action_item(
     arguments: dict[str, Any],
     client: FellowApiClient,
+    metrics: Optional[RequestMetrics] = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
     """Archive an action item.
@@ -108,4 +116,4 @@ def archive_action_item(
     Sends a POST request to /api/v1/action_item/{id}/archive.
     """
     action_item_id = arguments["id"]
-    return client.post(f"/api/v1/action_item/{action_item_id}/archive")
+    return client.post(f"/api/v1/action_item/{action_item_id}/archive", metrics=metrics)

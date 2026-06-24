@@ -33,7 +33,7 @@ class TestListWebhooks:
 
         result = list_webhooks({}, mock_client)
 
-        mock_client.get.assert_called_once_with("/api/v1/webhook", params=None)
+        mock_client.get.assert_called_once_with("/api/v1/webhook", params=None, metrics=None)
         assert result == {
             "results": [{"id": "wh1", "url": "https://example.com/hook"}],
             "cursor": None,
@@ -46,7 +46,7 @@ class TestListWebhooks:
         result = list_webhooks({"limit": 10}, mock_client)
 
         mock_client.get.assert_called_once_with(
-            "/api/v1/webhook", params={"limit": 10}
+            "/api/v1/webhook", params={"limit": 10}, metrics=None
         )
 
     def test_list_webhooks_with_cursor(self, mock_client):
@@ -56,7 +56,7 @@ class TestListWebhooks:
         result = list_webhooks({"cursor": "abc123"}, mock_client)
 
         mock_client.get.assert_called_once_with(
-            "/api/v1/webhook", params={"cursor": "abc123"}
+            "/api/v1/webhook", params={"cursor": "abc123"}, metrics=None
         )
 
     def test_list_webhooks_with_limit_and_cursor(self, mock_client):
@@ -66,7 +66,7 @@ class TestListWebhooks:
         result = list_webhooks({"limit": 25, "cursor": "next-page"}, mock_client)
 
         mock_client.get.assert_called_once_with(
-            "/api/v1/webhook", params={"limit": 25, "cursor": "next-page"}
+            "/api/v1/webhook", params={"limit": 25, "cursor": "next-page"}, metrics=None
         )
 
 
@@ -84,7 +84,7 @@ class TestGetWebhook:
 
         result = get_webhook({"id": "wh-123"}, mock_client)
 
-        mock_client.get.assert_called_once_with("/api/v1/webhook/wh-123")
+        mock_client.get.assert_called_once_with("/api/v1/webhook/wh-123", metrics=None)
         assert result == {
             "id": "wh-123",
             "url": "https://example.com/hook",
@@ -98,7 +98,7 @@ class TestGetWebhook:
 
         result = get_webhook({"id": "abc-123_def"}, mock_client)
 
-        mock_client.get.assert_called_once_with("/api/v1/webhook/abc-123_def")
+        mock_client.get.assert_called_once_with("/api/v1/webhook/abc-123_def", metrics=None)
         assert result["id"] == "abc-123_def"
 
 
@@ -127,6 +127,7 @@ class TestCreateWebhook:
                 "url": "https://example.com/hook",
                 "enabled_events": ["action_item.completed"],
             },
+            metrics=None,
         )
         assert result["id"] == "wh-new"
 
@@ -158,6 +159,7 @@ class TestCreateWebhook:
                 "description": "My webhook",
                 "status": "active",
             },
+            metrics=None,
         )
 
     def test_create_webhook_with_description_only(self, mock_client):
@@ -180,6 +182,7 @@ class TestCreateWebhook:
                 "enabled_events": ["ai_note.shared_to_channel"],
                 "description": "Test hook",
             },
+            metrics=None,
         )
 
     def test_create_webhook_with_status_only(self, mock_client):
@@ -202,6 +205,7 @@ class TestCreateWebhook:
                 "enabled_events": ["action_item.completed"],
                 "status": "inactive",
             },
+            metrics=None,
         )
 
 
@@ -223,6 +227,7 @@ class TestUpdateWebhook:
         mock_client.put.assert_called_once_with(
             "/api/v1/webhook/wh-123",
             body={"url": "https://new-url.com/hook"},
+            metrics=None,
         )
 
     def test_update_webhook_multiple_fields(self, mock_client):
@@ -248,6 +253,7 @@ class TestUpdateWebhook:
                 "description": "Updated desc",
                 "status": "inactive",
             },
+            metrics=None,
         )
 
     def test_update_webhook_enabled_events_only(self, mock_client):
@@ -267,6 +273,7 @@ class TestUpdateWebhook:
             body={
                 "enabled_events": ["action_item.assigned", "action_item.completed"],
             },
+            metrics=None,
         )
 
     def test_update_webhook_excludes_id_from_body(self, mock_client):
@@ -292,7 +299,7 @@ class TestDeleteWebhook:
 
         result = delete_webhook({"id": "wh-456"}, mock_client)
 
-        mock_client.delete.assert_called_once_with("/api/v1/webhook/wh-456")
+        mock_client.delete.assert_called_once_with("/api/v1/webhook/wh-456", metrics=None)
         assert result == {"deleted": True, "id": "wh-456"}
 
     def test_delete_webhook_returns_id_in_confirmation(self, mock_client):

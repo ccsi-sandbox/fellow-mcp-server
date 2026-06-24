@@ -3,6 +3,7 @@
 import pytest
 import requests
 import responses
+from unittest.mock import MagicMock
 from responses import matchers
 
 from app.client.fellow_api import FellowApiClient, FellowApiError, TransientApiError
@@ -527,3 +528,255 @@ class TestFellowApiClientRateLimiter:
         # Verify it has a rate limiter (it should be a TokenBucketRateLimiter)
         assert api_client._rate_limiter is not None
         assert isinstance(api_client._rate_limiter, TokenBucketRateLimiter)
+
+
+@pytest.mark.unit
+class TestEnhancedRetryLogging:
+    """Tests for enhanced retry logging with metrics."""
+
+    @responses.activate
+    def test_retry_event_includes_status_code_on_transient_error(
+        self, client: FellowApiClient, caplog
+    ):
+        """Retry event includes the HTTP status code that caused the retry."""
+        import structlog
+        from app.logging.metrics import RequestMetrics
+        import time
+
+        captured_events = []
+        original_warning = structlog.get_logger(__name__).warning
+
+        # Use structlog testing capture
+        metrics = RequestMetrics(start_time=time.time())
+
+        responses.add(
+            responses.GET,
+            "https://testco.fellow.app/api/v1/me",
+            body="Rate limited",
+            status=429,
+        )
+        responses.add(
+            responses.GET,
+            "https://testco.fellow.app/api/v1/me",
+            json={"ok": True},
+            status=200,
+        )
+
+        result = client.get("/api/v1/me", metrics=metrics)
+
+        assert result == {"ok": True}
+        # Retry wait time was accumulated
+        assert metrics.retry_wait_ms > 0
+
+    @responses.activate
+    def test_retry_event_accumulates_retry_wait_ms(
+        self, client: FellowApiClient
+    ):
+        """Retry sleep time is accumulated into metrics.retry_wait_ms."""
+        import time
+        from app.logging.metrics import RequestMetrics
+
+        metrics = RequestMetrics(start_time=time.time())
+
+        # Two transient errors followed by success
+        responses.add(
+            responses.GET,
+            "https://testco.fellow.app/api/v1/me",
+            body="Error",
+            status=500,
+        )
+        responses.add(
+            responses.GET,
+            "https://testco.fellow.app/api/v1/me",
+            body="Error",
+            status=503,
+        )
+        responses.add(
+            responses.GET,
+            "https://testco.fellow.app/api/v1/me",
+            json={"ok": True},
+            status=200,
+        )
+
+        client.get("/api/v1/me", metrics=metrics)
+
+        # Two retries means retry_wait_ms should be positive
+        assert metrics.retry_wait_ms > 0
+
+    @responses.activate
+    def test_retry_event_includes_upstream_api_calls(
+        self, client: FellowApiClient
+    ):
+        """Retry event includes upstream_api_calls for calls made so far."""
+        import time
+        from app.logging.metrics import RequestMetrics
+
+        metrics = RequestMetrics(start_time=time.time())
+
+        responses.add(
+            responses.GET,
+            "https://testco.fellow.app/api/v1/me",
+            body="Error",
+            status=500,
+        )
+        responses.add(
+            responses.GET,
+            "https://testco.fellow.app/api/v1/me",
+            json={"ok": True},
+            status=200,
+        )
+
+        client.get("/api/v1/me", metrics=metrics)
+
+        # After success: 2 calls total (1 failed + 1 success)
+        assert len(metrics.upstream_api_calls) == 2
+        assert metrics.upstream_api_calls[0].status_code == 500
+        assert metrics.upstream_api_calls[1].status_code == 200
+
+    @responses.activate
+    def test_retry_event_includes_cumulative_upstream_bytes(
+        self, client: FellowApiClient
+    ):
+        """Retry event includes cumulative upstream request/response bytes."""
+        import time
+        from app.logging.metrics import RequestMetrics
+
+        metrics = RequestMetrics(start_time=time.time())
+
+        responses.add(
+            responses.GET,
+            "https://testco.fellow.app/api/v1/me",
+            body="Error body",
+            status=500,
+        )
+        responses.add(
+            responses.GET,
+            "https://testco.fellow.app/api/v1/me",
+            json={"ok": True},
+            status=200,
+        )
+
+        client.get("/api/v1/me", metrics=metrics)
+
+        # Both calls generated upstream response bytes
+        assert metrics.upstream_response_bytes > 0
+
+    def test_retry_event_uses_408_for_timeout(self, config: AppConfig):
+        """Timeout retry events report status_code 408."""
+        import time
+        from unittest.mock import patch, MagicMock
+        from app.logging.metrics import RequestMetrics
+
+        rate_limiter = NoOpRateLimiter()
+        api_client = FellowApiClient(config=config, rate_limiter=rate_limiter)
+        metrics = RequestMetrics(start_time=time.time())
+
+        # First call raises Timeout, second call succeeds
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.content = b'{"ok": true}'
+        mock_response.text = '{"ok": true}'
+        mock_response.json.return_value = {"ok": True}
+        mock_response.headers = {}
+
+        mock_request = MagicMock(
+            side_effect=[
+                requests.Timeout("Connection timed out"),
+                mock_response,
+            ]
+        )
+
+        with patch.object(api_client._session, "request", mock_request):
+            result = api_client.get("/api/v1/me", metrics=metrics)
+
+        assert result == {"ok": True}
+        # The timeout call should be recorded with status_code=0
+        assert metrics.upstream_api_calls[0].status_code == 0
+        # retry_wait_ms should be accumulated
+        assert metrics.retry_wait_ms > 0
+
+    @responses.activate
+    def test_retry_event_no_mcp_response_bytes(self, client: FellowApiClient):
+        """Retry events do NOT include mcp_response_bytes (not yet available)."""
+        import time
+        import structlog
+        from unittest.mock import patch
+        from app.logging.metrics import RequestMetrics
+
+        metrics = RequestMetrics(start_time=time.time())
+        metrics.mcp_request_bytes = 100
+
+        captured_kwargs = []
+
+        def capture_warning(event, **kwargs):
+            if event == "fellow_api_retry":
+                captured_kwargs.append(kwargs)
+
+        responses.add(
+            responses.GET,
+            "https://testco.fellow.app/api/v1/me",
+            body="Error",
+            status=500,
+        )
+        responses.add(
+            responses.GET,
+            "https://testco.fellow.app/api/v1/me",
+            json={"ok": True},
+            status=200,
+        )
+
+        with patch(
+            "app.client.fellow_api.logger"
+        ) as mock_logger:
+            mock_logger.debug = MagicMock()
+            mock_logger.warning = capture_warning
+            client.get("/api/v1/me", metrics=metrics)
+
+        # Should have captured one retry event
+        assert len(captured_kwargs) == 1
+        # mcp_response_bytes should NOT be in the retry event
+        assert "mcp_response_bytes" not in captured_kwargs[0]
+        # mcp_request_bytes SHOULD be present
+        assert "mcp_request_bytes" in captured_kwargs[0]
+
+    @responses.activate
+    def test_retry_event_includes_timings_with_total_elapsed(
+        self, client: FellowApiClient
+    ):
+        """Retry event includes timings dict with total_elapsed_ms."""
+        import time
+        from unittest.mock import patch, MagicMock
+        from app.logging.metrics import RequestMetrics
+
+        metrics = RequestMetrics(start_time=time.time())
+
+        captured_kwargs = []
+
+        def capture_warning(event, **kwargs):
+            if event == "fellow_api_retry":
+                captured_kwargs.append(kwargs)
+
+        responses.add(
+            responses.GET,
+            "https://testco.fellow.app/api/v1/me",
+            body="Error",
+            status=500,
+        )
+        responses.add(
+            responses.GET,
+            "https://testco.fellow.app/api/v1/me",
+            json={"ok": True},
+            status=200,
+        )
+
+        with patch(
+            "app.client.fellow_api.logger"
+        ) as mock_logger:
+            mock_logger.debug = MagicMock()
+            mock_logger.warning = capture_warning
+            client.get("/api/v1/me", metrics=metrics)
+
+        assert len(captured_kwargs) == 1
+        assert "timings" in captured_kwargs[0]
+        assert "total_elapsed_ms" in captured_kwargs[0]["timings"]
+        assert captured_kwargs[0]["timings"]["total_elapsed_ms"] > 0

@@ -1,6 +1,11 @@
 """Cursor-based pagination for Fellow.ai API list endpoints."""
 
+from __future__ import annotations
+
 from typing import Any, Callable
+
+from app.client.fellow_api import FellowApiError, TransientApiError
+from app.logging.metrics import RequestMetrics
 
 
 class PaginationError(Exception):
@@ -43,6 +48,7 @@ class CursorPaginator:
         request_fn: Callable[[dict], dict[str, Any]],
         base_body: dict,
         response_key: str,
+        metrics: RequestMetrics | None = None,
     ) -> tuple[list[dict], bool]:
         """Fetch all pages. Returns (combined_results, was_truncated).
 
@@ -53,6 +59,8 @@ class CursorPaginator:
                 object will be added/updated automatically.
             response_key: The top-level key in the response containing the
                 paginated data (e.g., "notes", "recordings", "action_items").
+            metrics: Optional RequestMetrics to track page numbers on
+                UpstreamCallRecord entries.
 
         Returns:
             Tuple of (all_results, was_truncated). was_truncated is True if
@@ -76,7 +84,30 @@ class CursorPaginator:
             try:
                 response = request_fn(body)
             except Exception as exc:
+                # On failure, update the page number on any record that was
+                # added by the request_fn (e.g., timeout records)
+                if metrics is not None and metrics.upstream_api_calls:
+                    last_record = metrics.upstream_api_calls[-1]
+                    last_record.page = page_number
+
+                # Propagate the HTTP status code to metrics
+                if metrics is not None:
+                    if isinstance(exc, FellowApiError):
+                        metrics.upstream_status_code = exc.status_code
+                    elif isinstance(exc, TransientApiError):
+                        metrics.upstream_status_code = exc.status_code
+                    elif metrics.upstream_api_calls:
+                        last_status = metrics.upstream_api_calls[-1].status_code
+                        if last_status != 0:
+                            metrics.upstream_status_code = last_status
+
                 raise PaginationError(page_number, exc) from exc
+
+            # After a successful call, set the correct page number on the
+            # most recently added UpstreamCallRecord
+            if metrics is not None and metrics.upstream_api_calls:
+                last_record = metrics.upstream_api_calls[-1]
+                last_record.page = page_number
 
             # Extract data from the nested response structure
             resource_data = response.get(response_key, {})

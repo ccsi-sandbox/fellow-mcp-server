@@ -4,10 +4,11 @@ Provides MCP tool handlers for listing, retrieving, and deleting
 Fellow.ai meeting recordings, including transcripts and AI-generated notes.
 """
 
-from typing import Any
+from typing import Any, Optional
 
 from app.client.fellow_api import FellowApiClient
 from app.client.paginator import CursorPaginator
+from app.logging.metrics import RequestMetrics
 
 
 # Filter fields for list_recordings
@@ -26,6 +27,8 @@ def list_recordings(
     arguments: dict[str, Any],
     client: FellowApiClient,
     paginator: CursorPaginator,
+    metrics: Optional[RequestMetrics] = None,
+    **kwargs: Any,
 ) -> dict[str, Any]:
     """List recordings with optional filters, includes, and media_url flag.
 
@@ -74,12 +77,13 @@ def list_recordings(
         body["media_url"] = {"include": True}
 
     def request_fn(request_body: dict[str, Any]) -> dict[str, Any]:
-        return client.post("/api/v1/recordings", body=request_body)
+        return client.post("/api/v1/recordings", body=request_body, metrics=metrics)
 
     results, was_truncated = paginator.fetch_all(
         request_fn=request_fn,
         base_body=body,
         response_key="recordings",
+        metrics=metrics,
     )
 
     response: dict[str, Any] = {"results": results}
@@ -92,6 +96,7 @@ def list_recordings(
 def get_recording(
     arguments: dict[str, Any],
     client: FellowApiClient,
+    metrics: Optional[RequestMetrics] = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
     """Retrieve a single recording by ID with optional includes.
@@ -107,12 +112,13 @@ def get_recording(
     if "media_url" in arguments:
         params["media_url"] = arguments["media_url"]
 
-    return client.get(f"/api/v1/recording/{recording_id}", params=params or None)
+    return client.get(f"/api/v1/recording/{recording_id}", params=params or None, metrics=metrics)
 
 
 def delete_recording(
     arguments: dict[str, Any],
     client: FellowApiClient,
+    metrics: Optional[RequestMetrics] = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
     """Delete a recording by ID.
@@ -120,5 +126,5 @@ def delete_recording(
     Sends a DELETE request to /api/v1/recording/{id}.
     """
     recording_id = arguments["id"]
-    client.delete(f"/api/v1/recording/{recording_id}")
+    client.delete(f"/api/v1/recording/{recording_id}", metrics=metrics)
     return {"deleted": True, "id": recording_id}
