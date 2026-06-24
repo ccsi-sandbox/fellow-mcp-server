@@ -221,12 +221,134 @@ pytest --cov=app          # With coverage report
 
 ### Run Locally (without Docker)
 
+If you don't want to use Docker, you can run the server directly on your machine. This section walks through each step in detail.
+
+#### Prerequisites
+
+You need **Python 3.11 or newer** installed on your system. To check:
+
 ```bash
+python3 --version
+```
+
+If you see something like `Python 3.11.x` or `Python 3.12.x`, you're good. If `python3` isn't found, install it:
+
+- **macOS**: `brew install python@3.12` (requires [Homebrew](https://brew.sh))
+- **Ubuntu/Debian**: `sudo apt update && sudo apt install python3 python3-venv python3-pip`
+- **Windows**: Download from [python.org](https://www.python.org/downloads/) — check "Add Python to PATH" during install, then use `python` instead of `python3` in the commands below.
+
+#### Step 1 — Download the code
+
+If you have `git` installed:
+
+```bash
+git clone https://github.com/ccsi-sandbox/fellow-mcp-server.git
+cd fellow-mcp-server
+```
+
+Or download the ZIP from GitHub and extract it, then open a terminal in that folder.
+
+#### Step 2 — Create a virtual environment
+
+A virtual environment keeps this project's dependencies isolated from other Python software on your machine.
+
+```bash
+python3 -m venv venv
+```
+
+This creates a `venv/` folder in the project directory. You only need to do this once.
+
+#### Step 3 — Activate the virtual environment
+
+Every time you open a new terminal to work with this project, run:
+
+```bash
+# macOS / Linux
 source venv/bin/activate
-export FELLOW_API_KEY=your-key
-export FELLOW_SUBDOMAIN=your-subdomain
+
+# Windows (Command Prompt)
+venv\Scripts\activate.bat
+
+# Windows (PowerShell)
+venv\Scripts\Activate.ps1
+```
+
+You'll know it's active when your prompt shows `(venv)` at the beginning.
+
+#### Step 4 — Install dependencies
+
+With the virtual environment active:
+
+```bash
+pip install -r requirements.txt
+```
+
+This downloads and installs all the libraries the server needs. You only need to do this once (or again if `requirements.txt` changes).
+
+#### Step 5 — Configure your environment
+
+Copy the example configuration file:
+
+```bash
+cp .env.example .env
+```
+
+Open `.env` in any text editor and fill in the two required values:
+
+```dotenv
+FELLOW_API_KEY=your-fellow-api-key-here
+FELLOW_SUBDOMAIN=your-company
+```
+
+- **FELLOW_API_KEY**: Get this from Fellow.ai → Settings → Integrations → Developer API.
+- **FELLOW_SUBDOMAIN**: The part before `.fellow.app` in your workspace URL. For example, if you log in at `acme.fellow.app`, your subdomain is `acme`.
+
+The other settings in `.env` are optional and have sensible defaults. See the [Configuration](#configuration) section above for details.
+
+#### Step 6 — Start the server
+
+```bash
 python3 app/main.py
 ```
+
+You should see output similar to:
+
+```
+ * Running on http://0.0.0.0:8000
+```
+
+The server is now listening on port 8000. Leave this terminal open — the server runs until you stop it with `Ctrl+C`.
+
+#### Step 7 — Verify it works
+
+Open a **second terminal** (or a browser) and check the health endpoint:
+
+```bash
+curl http://localhost:8000/health
+```
+
+You should see:
+
+```json
+{"status": "healthy", "fellow_api": "reachable"}
+```
+
+If `fellow_api` shows `"unreachable"`, double-check your `FELLOW_API_KEY` and `FELLOW_SUBDOMAIN` in the `.env` file.
+
+#### Stopping and restarting
+
+- **Stop**: Press `Ctrl+C` in the terminal where the server is running.
+- **Restart**: Make sure the virtual environment is activated (`source venv/bin/activate`), then run `python3 app/main.py` again.
+
+#### Troubleshooting
+
+| Symptom | Fix |
+|---------|-----|
+| `python3: command not found` | Install Python 3.11+ (see Prerequisites above) |
+| `ModuleNotFoundError: No module named 'flask'` | You forgot to activate the venv or run `pip install -r requirements.txt` |
+| Server starts but `/health` says `fellow_api: unreachable` | Check that `FELLOW_API_KEY` and `FELLOW_SUBDOMAIN` are correct in `.env` |
+| `Address already in use` | Another process is using port 8000. Stop it, or change the port in `app/main.py` |
+| Permission denied on Linux | Don't run with `sudo`. Use your normal user account with a venv. |
 
 ## License
 
