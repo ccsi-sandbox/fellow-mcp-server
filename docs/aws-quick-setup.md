@@ -58,15 +58,15 @@ You can get the project files using **either** Git (if you have it) or by downlo
 
 **Option A — Download as ZIP (no Git required):**
 
-1. Open your browser and go to the project's repository page
+1. Open your browser and go to [https://github.com/ccsi-sandbox/fellow-mcp-server](https://github.com/ccsi-sandbox/fellow-mcp-server)
 2. Click the green **"Code"** button near the top of the page
 3. Click **"Download ZIP"**
-4. Open your Downloads folder and find the file (it will be named something like `fellow-mcp-main.zip`)
-5. Double-click the ZIP file to extract it — macOS will create a folder like `fellow-mcp-main`
+4. Open your Downloads folder and find the file (it will be named something like `fellow-mcp-server-main.zip`)
+5. Double-click the ZIP file to extract it — macOS will create a folder like `fellow-mcp-server-main`
 6. Drag this folder to a permanent location. A good choice is your home folder. To do this:
    - Open **Finder**
    - In the menu bar, click **Go → Home** (or press `Cmd + Shift + H`)
-   - Drag the extracted `fellow-mcp-main` folder into this window
+   - Drag the extracted `fellow-mcp-server-main` folder into this window
 7. **Rename the folder** to `fellow-mcp` for simplicity (right-click → Rename)
 
 **Option B — Clone with Git (if you have Git installed):**
@@ -75,7 +75,7 @@ Open **Terminal** and run:
 
 ```bash
 cd ~
-git clone <repository-url> fellow-mcp
+git clone https://github.com/ccsi-sandbox/fellow-mcp-server.git fellow-mcp
 ```
 
 ### Step 3: Open Terminal in the Project Folder
@@ -239,15 +239,15 @@ You can get the project files using **either** Git (if you have it) or by downlo
 
 **Option A — Download as ZIP (no Git required):**
 
-1. Open your browser and go to the project's repository page
+1. Open your browser and go to [https://github.com/ccsi-sandbox/fellow-mcp-server](https://github.com/ccsi-sandbox/fellow-mcp-server)
 2. Click the green **"Code"** button near the top of the page
 3. Click **"Download ZIP"**
-4. Open your Downloads folder and find the file (it will be named something like `fellow-mcp-main.zip`)
+4. Open your Downloads folder and find the file (it will be named something like `fellow-mcp-server-main.zip`)
 5. Right-click the ZIP file and select **"Extract All..."**
 6. Choose a permanent location to extract to. A good choice is your user folder:
    - Click **Browse**, then navigate to `C:\Users\YOUR_USERNAME`
    - Click **Select Folder**, then click **Extract**
-7. This creates a folder like `fellow-mcp-main`. **Rename it** to `fellow-mcp` (right-click → Rename).
+7. This creates a folder like `fellow-mcp-server-main`. **Rename it** to `fellow-mcp` (right-click → Rename).
 
 Your project should now be at a path like `C:\Users\YOUR_USERNAME\fellow-mcp`.
 
@@ -257,7 +257,7 @@ Open **PowerShell** and run:
 
 ```powershell
 cd $HOME
-git clone <repository-url> fellow-mcp
+git clone https://github.com/ccsi-sandbox/fellow-mcp-server.git fellow-mcp
 ```
 
 ### Step 3: Open PowerShell in the Project Folder
