@@ -39,6 +39,8 @@ Unlike Fellow's official read-only MCP server, this implementation provides **fu
 
 ## Quick Start
 
+> **Using AWS Quick Desktop?** See the dedicated setup guide: **[AWS Quick Desktop Setup](docs/aws-quick-setup.md)** — no Docker required.
+
 ### 1. Get a Fellow API Key
 
 Generate an API key from your Fellow.ai workspace at **Settings → Integrations → Developer API**.
@@ -166,7 +168,35 @@ The `fellow_api` field is `"unreachable"` if the Fellow API doesn't respond, but
 
 ## Deployment
 
-### Docker Compose (Recommended)
+### AWS Quick Desktop (Local MCP)
+
+For AWS Quick Desktop users, the server runs in **stdio mode** — no Docker or port management required. Quick launches and manages the process automatically.
+
+See **[docs/aws-quick-setup.md](docs/aws-quick-setup.md)** for full platform-specific instructions (macOS and Windows).
+
+Quick start:
+```bash
+# macOS
+./scripts/bootstrap-macos.sh
+
+# Windows (PowerShell)
+.\scripts\bootstrap-windows.ps1
+```
+
+### Stdio Mode (Manual)
+
+Run the server in stdio transport mode for any MCP client that communicates over stdin/stdout:
+
+```bash
+source venv/bin/activate
+export FELLOW_API_KEY=your-key
+export FELLOW_SUBDOMAIN=your-subdomain
+python3 -m app --stdio
+```
+
+The server reads newline-delimited JSON-RPC from stdin and writes responses to stdout. All logging goes to stderr.
+
+### Docker Compose (Recommended for HTTP mode)
 
 ```bash
 docker compose up --build -d
