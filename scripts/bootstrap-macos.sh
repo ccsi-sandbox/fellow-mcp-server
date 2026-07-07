@@ -99,6 +99,7 @@ source "$PROJECT_DIR/.env" 2>/dev/null || true
 set +a
 
 # Execute the stdio server
+cd "$PROJECT_DIR" || exit 1
 exec "$PROJECT_DIR/venv/bin/python3" -m app --stdio
 WRAPPER_EOF
     chmod +x "$WRAPPER"

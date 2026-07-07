@@ -109,6 +109,7 @@ if exist "%PROJECT_DIR%\.env" (
 )
 
 REM Execute the stdio server
+cd /d "%PROJECT_DIR%"
 "%PROJECT_DIR%\venv\Scripts\python.exe" -m app --stdio
 "@
 
