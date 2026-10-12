@@ -37,160 +37,19 @@ from app.mcp.protocol import (
     build_jsonrpc_error,
     build_tool_result,
     build_tools_list_response,
+    negotiate_protocol_version,
     parse_jsonrpc_request,
 )
+from app.mcp.definitions import TOOL_HANDLERS, create_registry
 from app.mcp.registry import ToolNotFoundError, ToolRegistry
-from app.tools.action_items import (
-    archive_action_item,
-    complete_action_item,
-    get_action_item,
-    list_action_items,
-)
-from app.tools.notes import delete_note, get_note, list_notes
-from app.tools.recordings import delete_recording, get_recording, list_recordings
-from app.tools.user import get_current_user
-from app.tools.webhooks import (
-    create_webhook,
-    delete_webhook,
-    get_webhook,
-    list_webhooks,
-    update_webhook,
-)
-from app.validation.schemas import InputValidator, TOOL_SCHEMAS
+from app.validation.schemas import InputValidator
 
 logger = structlog.get_logger(__name__)
 
 
-# Tool descriptions (same as main.py)
-TOOL_DESCRIPTIONS: dict[str, str] = {
-    "list_action_items": (
-        "List action items with optional filters for completed status, "
-        "archived status, AI detection, scope, and ordering."
-    ),
-    "get_action_item": "Retrieve a single action item by its ID.",
-    "complete_action_item": (
-        "Mark an action item as complete or incomplete."
-    ),
-    "archive_action_item": "Archive an action item by its ID.",
-    "list_notes": (
-        "List meeting notes with optional filters for event, dates, "
-        "channel, title, and attendees."
-    ),
-    "get_note": "Retrieve a single note by its ID.",
-    "delete_note": "Delete a note by its ID.",
-    "list_recordings": (
-        "List recordings with optional filters for event, dates, "
-        "channel, and title. Supports include options for transcript and AI notes."
-    ),
-    "get_recording": (
-        "Retrieve a single recording by its ID with optional includes "
-        "for transcript, AI notes, and media URL."
-    ),
-    "delete_recording": "Delete a recording by its ID.",
-    "list_webhooks": (
-        "List webhooks with optional limit and cursor for pagination."
-    ),
-    "get_webhook": "Retrieve a single webhook by its ID.",
-    "create_webhook": (
-        "Create a new webhook with a URL, enabled events, "
-        "and optional description and status."
-    ),
-    "update_webhook": (
-        "Update an existing webhook's URL, enabled events, "
-        "description, or status."
-    ),
-    "delete_webhook": "Delete a webhook by its ID.",
-    "get_current_user": (
-        "Get the authenticated user's information including "
-        "user ID, name, email, and workspace details."
-    ),
-}
-
-# Tool handlers mapped by name
-TOOL_HANDLERS: dict[str, Any] = {
-    "list_action_items": list_action_items,
-    "get_action_item": get_action_item,
-    "complete_action_item": complete_action_item,
-    "archive_action_item": archive_action_item,
-    "list_notes": list_notes,
-    "get_note": get_note,
-    "delete_note": delete_note,
-    "list_recordings": list_recordings,
-    "get_recording": get_recording,
-    "delete_recording": delete_recording,
-    "list_webhooks": list_webhooks,
-    "get_webhook": get_webhook,
-    "create_webhook": create_webhook,
-    "update_webhook": update_webhook,
-    "delete_webhook": delete_webhook,
-    "get_current_user": get_current_user,
-}
-
-
-def _build_input_schema(tool_name: str) -> dict[str, Any]:
-    """Build a JSON Schema dict from the internal TOOL_SCHEMAS definition.
-
-    Args:
-        tool_name: The tool name to build schema for.
-
-    Returns:
-        A JSON Schema dict with type, properties, and required fields.
-    """
-    schema_def = TOOL_SCHEMAS[tool_name]
-    properties: dict[str, Any] = {}
-
-    for param_name, param_spec in schema_def["params"].items():
-        param_type = param_spec["type"]
-
-        if param_type == "bool":
-            properties[param_name] = {"type": "boolean"}
-        elif param_type == "int":
-            prop: dict[str, Any] = {"type": "integer"}
-            if "min" in param_spec:
-                prop["minimum"] = param_spec["min"]
-            if "max" in param_spec:
-                prop["maximum"] = param_spec["max"]
-            properties[param_name] = prop
-        elif param_type in ("string", "id", "date", "url"):
-            properties[param_name] = {"type": "string"}
-        elif param_type == "enum":
-            properties[param_name] = {
-                "type": "string",
-                "enum": param_spec["enum_values"],
-            }
-        elif param_type == "enum_list":
-            properties[param_name] = {
-                "type": "array",
-                "items": {
-                    "type": "string",
-                    "enum": param_spec["enum_values"],
-                },
-            }
-
-    return {
-        "type": "object",
-        "properties": properties,
-        "required": schema_def["required"],
-    }
-
-
-def _create_registry() -> ToolRegistry:
-    """Create and populate the tool registry with all tools.
-
-    Returns:
-        A fully populated ToolRegistry instance.
-    """
-    registry = ToolRegistry()
-
-    for tool_name, handler in TOOL_HANDLERS.items():
-        registry.register(
-            name=tool_name,
-            description=TOOL_DESCRIPTIONS[tool_name],
-            input_schema=_build_input_schema(tool_name),
-            handler=handler,
-        )
-
-    return registry
+# Tool descriptions, annotations, handlers and the registry factory live in
+# app.mcp.definitions so that this stdio transport and the HTTP transport in
+# app.main advertise byte-identical tool metadata. Do not re-declare them.
 
 
 def _configure_stdio_logging(log_level: str) -> None:
@@ -373,13 +232,23 @@ def _handle_message(
 
     # Dispatch method
     if method == "initialize":
+        # The negotiated version must be >= 2025-03-26 for a client to honour
+        # the tool annotations that distinguish reads from writes.
+        client_params = parsed.get("params") or {}
+        protocol_version = negotiate_protocol_version(
+            client_params.get("protocolVersion")
+            if isinstance(client_params, dict)
+            else None
+        )
         response = {
             "jsonrpc": "2.0",
             "id": request_id,
             "result": {
-                "protocolVersion": "2024-11-05",
+                "protocolVersion": protocol_version,
                 "capabilities": {
-                    "tools": {},
+                    "tools": {
+                        "listChanged": False,
+                    },
                 },
                 "serverInfo": {
                     "name": "fellow-mcp-server",
@@ -435,7 +304,7 @@ def run_stdio() -> None:
     api_client = FellowApiClient(app_config)
     paginator = CursorPaginator()
     validator = InputValidator()
-    registry = _create_registry()
+    registry = create_registry()
 
     logger.info("stdio_server_started", tools_count=len(TOOL_HANDLERS))
 

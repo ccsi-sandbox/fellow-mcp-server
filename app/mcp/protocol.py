@@ -12,6 +12,41 @@ from app.mcp.errors import (
 )
 
 
+# MCP protocol revisions this server implements, newest first.
+#
+# Tool annotations (readOnlyHint / destructiveHint / idempotentHint /
+# openWorldHint) were introduced in revision 2025-03-26. A client that
+# negotiates the older 2024-11-05 revision is entitled to ignore them, which
+# means it has no way to tell this server's reads from its writes -- so the
+# default advertised version must stay at or above 2025-03-26 for tool
+# allow-listing to work.
+LATEST_PROTOCOL_VERSION = "2025-06-18"
+ANNOTATIONS_MIN_PROTOCOL_VERSION = "2025-03-26"
+SUPPORTED_PROTOCOL_VERSIONS: tuple[str, ...] = (
+    "2025-06-18",
+    "2025-03-26",
+    "2024-11-05",
+)
+
+
+def negotiate_protocol_version(requested: Any) -> str:
+    """Pick the protocol version to report from an ``initialize`` request.
+
+    Per the MCP specification the server echoes the client's requested version
+    when it supports it, and otherwise answers with a version it does support.
+
+    Args:
+        requested: The ``params.protocolVersion`` value sent by the client.
+            May be missing or of the wrong type.
+
+    Returns:
+        A supported protocol version string.
+    """
+    if isinstance(requested, str) and requested in SUPPORTED_PROTOCOL_VERSIONS:
+        return requested
+    return LATEST_PROTOCOL_VERSION
+
+
 def parse_jsonrpc_request(data: bytes) -> dict[str, Any]:
     """Parse raw bytes into a validated JSON-RPC 2.0 request.
 

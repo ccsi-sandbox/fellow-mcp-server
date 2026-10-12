@@ -18,24 +18,63 @@ Unlike Fellow's official read-only MCP server, this implementation provides **fu
 
 ## Available Tools
 
-| Tool | Description |
-|------|-------------|
-| `list_action_items` | List action items with filters (completed, archived, scope, ordering) |
-| `get_action_item` | Get a single action item by ID |
-| `complete_action_item` | Mark an action item as complete or incomplete |
-| `archive_action_item` | Archive an action item |
-| `list_notes` | List meeting notes with filters and include options |
-| `get_note` | Get a single note by ID |
-| `delete_note` | Delete a note |
-| `list_recordings` | List recordings with filters, includes, and media URL option |
-| `get_recording` | Get a recording with optional transcript/AI notes/media URL |
-| `delete_recording` | Delete a recording |
-| `list_webhooks` | List webhooks with optional limit and cursor |
-| `get_webhook` | Get a single webhook by ID |
-| `create_webhook` | Create a new webhook subscription |
-| `update_webhook` | Update a webhook's URL, events, description, or status |
-| `delete_webhook` | Delete a webhook |
-| `get_current_user` | Get the authenticated user's info and workspace details |
+Each tool is advertised with MCP [tool annotations](https://modelcontextprotocol.io/specification/2025-06-18/server/tools#tool-annotations)
+so clients can tell reads from writes and apply allow-lists or approval policy
+per tool. See [Tool classification](#tool-classification) for how to use them.
+
+| Tool | Access | Description |
+|------|--------|-------------|
+| `list_action_items` | read-only | List action items with filters (completed, archived, scope, ordering) |
+| `get_action_item` | read-only | Get a single action item by ID |
+| `complete_action_item` | write | Mark an action item as complete or incomplete |
+| `archive_action_item` | write | Archive an action item |
+| `list_notes` | read-only | List meeting notes with filters and include options |
+| `get_note` | read-only | Get a single note by ID |
+| `delete_note` | write (destructive) | Delete a note |
+| `list_recordings` | read-only | List recordings with filters, includes, and media URL option |
+| `get_recording` | read-only | Get a recording with optional transcript/AI notes/media URL |
+| `delete_recording` | write (destructive) | Delete a recording |
+| `list_webhooks` | read-only | List webhooks with optional limit and cursor |
+| `get_webhook` | read-only | Get a single webhook by ID |
+| `create_webhook` | write | Create a new webhook subscription |
+| `update_webhook` | write (destructive) | Update a webhook's URL, events, description, or status |
+| `delete_webhook` | write (destructive) | Delete a webhook |
+| `get_current_user` | read-only | Get the authenticated user's info and workspace details |
+
+### Tool classification
+
+Every tool carries an explicit value for all four MCP hints:
+
+| Hint | Meaning here |
+|------|--------------|
+| `readOnlyHint` | `true` for the 9 query tools — they modify nothing |
+| `destructiveHint` | `true` only for the 4 tools that delete data or overwrite existing field values |
+| `idempotentHint` | `true` when repeating the call with the same arguments leaves the same end state |
+| `openWorldHint` | `true` only for `create_webhook` / `update_webhook`, which register an arbitrary external delivery URL |
+
+Nothing is left implicit. The MCP spec's default for an absent `destructiveHint`
+is `true`, so a server that omits annotations is telling every client that all
+of its tools are potentially destructive writes — which makes per-tool
+allow-listing impossible. The nine read-only tools above can be safely
+allow-listed for unattended use; the seven writes should require approval, with
+the four destructive ones treated as irreversible.
+
+Two details worth knowing:
+
+- **`list_*` tools issue upstream HTTP `POST` requests.** The Fellow API's list
+  endpoints take a filter and pagination body, so the verb is an API-shape
+  detail. These are queries and are annotated `readOnlyHint: true`. A client
+  that classifies by HTTP method rather than by annotation will get this wrong.
+- **The negotiated protocol version must be `2025-03-26` or newer.** Annotations
+  were introduced in that revision; a client negotiating the older `2024-11-05`
+  may ignore them. The server defaults to `2025-06-18` and echoes any supported
+  version the client requests.
+
+The classification lives in one place, `app/mcp/definitions.py`, shared by both
+the HTTP and stdio transports so they cannot drift. `READ_ONLY_TOOLS`,
+`WRITE_TOOLS` and `DESTRUCTIVE_TOOLS` are derived from the same table that
+feeds `tools/list`, and a tool registered without complete annotations fails at
+import rather than shipping unclassified.
 
 ## Quick Start
 
