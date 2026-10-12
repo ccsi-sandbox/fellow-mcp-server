@@ -14,9 +14,9 @@ class ToolNotFoundError(Exception):
 class ToolRegistry:
     """Maps tool names to handler functions and stores tool definitions.
 
-    The registry stores both the tool metadata (name, description, inputSchema)
-    used for tools/list responses, and the handler callables used for tools/call
-    dispatch.
+    The registry stores both the tool metadata (name, description, inputSchema,
+    annotations) used for tools/list responses, and the handler callables used
+    for tools/call dispatch.
     """
 
     def __init__(self) -> None:
@@ -29,6 +29,7 @@ class ToolRegistry:
         description: str,
         input_schema: dict,
         handler: Callable,
+        annotations: dict[str, Any] | None = None,
     ) -> None:
         """Register a tool with its definition and handler.
 
@@ -37,13 +38,58 @@ class ToolRegistry:
             description: Human-readable description of the tool.
             input_schema: JSON Schema dict describing the tool's input parameters.
             handler: Callable that executes the tool logic.
+            annotations: Optional MCP tool annotations (``title``,
+                ``readOnlyHint``, ``destructiveHint``, ``idempotentHint``,
+                ``openWorldHint``). Clients use these to tell reads from writes
+                when applying allow-lists and approval policy. Omitting them
+                makes a client fall back on the specification's conservative
+                defaults (not read-only, destructive), so production tools
+                should always supply them -- see ``app.mcp.definitions``.
         """
-        self._tools[name] = {
+        definition: dict[str, Any] = {
             "name": name,
             "description": description,
             "inputSchema": input_schema,
         }
+        if annotations:
+            # Copy so a later mutation of the caller's dict cannot change what
+            # has already been advertised to clients.
+            definition["annotations"] = dict(annotations)
+        self._tools[name] = definition
         self._handlers[name] = handler
+
+    def get_annotations(self, name: str) -> dict[str, Any]:
+        """Return the annotations advertised for a tool.
+
+        Args:
+            name: The tool name to look up.
+
+        Returns:
+            The tool's annotations dict, or an empty dict if it has none.
+
+        Raises:
+            ToolNotFoundError: If the tool name is not registered.
+        """
+        if name not in self._tools:
+            raise ToolNotFoundError(name)
+        return dict(self._tools[name].get("annotations", {}))
+
+    def is_read_only(self, name: str) -> bool:
+        """Report whether a tool is advertised as read-only.
+
+        Follows the MCP default: a tool with no ``readOnlyHint`` is NOT
+        read-only.
+
+        Args:
+            name: The tool name to look up.
+
+        Returns:
+            True only when the tool explicitly advertises ``readOnlyHint``.
+
+        Raises:
+            ToolNotFoundError: If the tool name is not registered.
+        """
+        return bool(self.get_annotations(name).get("readOnlyHint", False))
 
     def get_handler(self, name: str) -> Callable:
         """Get handler for a tool name.
@@ -66,6 +112,7 @@ class ToolRegistry:
 
         Returns:
             List of tool definition dicts, each containing name, description,
-            and inputSchema keys.
+            and inputSchema keys, plus an annotations key for every tool
+            registered with annotations.
         """
         return list(self._tools.values())
